@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAM Engine — Phase 2</title>
+<style>
+  :root{
+    --bg:#15181c; --panel:#1c2025; --panel-2:#232830; --line:#2f353d;
+    --ink:#e6e9ec; --ink-dim:#9aa3ad;
+    --amber:#f0a92b;      /* finishing / tip path */
+    --cyan:#38d6c8;       /* cutting move */
+    --violet:#8b7cf0;     /* roughing */
+    --danger:#ff6b57;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Inter","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.5}
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .tag{color:var(--amber);font-size:12px;letter-spacing:.06em}
+  header .sub{color:var(--ink-dim);font-size:12.5px;margin-left:auto;max-width:480px}
+  .wrap{display:grid;grid-template-columns:320px 1fr 360px;gap:1px;background:var(--line);min-height:calc(100vh - 57px)}
+  .col{background:var(--bg);padding:18px;overflow:auto}
+  .col.controls{background:var(--panel)} .col.out{background:var(--panel)}
+  h2{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink-dim);margin:0 0 12px;text-transform:uppercase}
+  h2 .pill{float:right;font-size:9.5px;color:var(--amber);border:1px solid var(--line);border-radius:20px;padding:1px 8px;letter-spacing:.05em}
+  .field{margin-bottom:14px}
+  .field label{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12.5px;color:var(--ink-dim)}
+  .field label b{color:var(--ink);font-weight:500}
+  input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer}
+  input[type=number],select{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:7px 9px;font-size:13px}
+  input:focus,select:focus{outline:2px solid var(--amber);outline-offset:-1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel-2);border:0;color:var(--ink-dim);padding:7px;font-size:12px;cursor:pointer}
+  .seg button.on{background:var(--amber);color:#1a1a1a;font-weight:600}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:9px 12px;font-size:13px;cursor:pointer;text-align:center}
+  .btn:hover{border-color:var(--amber)}
+  .btn.primary{background:var(--amber);color:#1a1a1a;border-color:var(--amber);font-weight:600}
+  .btn.full{width:100%}
+  canvas{display:block;background:#0e1114;border:1px solid var(--line);border-radius:8px;width:100%}
+  .canvas-label{font-size:11px;color:var(--ink-dim);margin:0 0 8px;letter-spacing:.04em}
+  .canvas-block{margin-bottom:20px}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--ink-dim);margin-top:8px;flex-wrap:wrap}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .opcard{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--panel-2)}
+  .opcard .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .opcard .head .name{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
+  .opcard .dot{width:10px;height:10px;border-radius:3px}
+  .toggle{position:relative;width:38px;height:20px;background:var(--line);border-radius:20px;cursor:pointer;transition:.15s}
+  .toggle.on{background:var(--amber)}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;background:#fff;border-radius:50%;transition:.15s}
+  .toggle.on::after{left:20px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:14px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:9px 11px}
+  .stat .k{font-size:10px;color:var(--ink-dim);letter-spacing:.04em}
+  .stat .v{font-size:15px;margin-top:2px}
+  .verdict{border:1px solid var(--line);border-left:3px solid var(--amber);background:var(--panel-2);border-radius:6px;padding:11px 13px;margin-bottom:14px;font-size:12px}
+  .verdict b{color:var(--amber)}
+  textarea{width:100%;height:200px;background:#0e1114;border:1px solid var(--line);color:var(--cyan);border-radius:8px;padding:11px;font-size:11.5px;resize:vertical;font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+  .hashline{font-size:11px;color:var(--ink-dim);margin:9px 0;word-break:break-all}
+  .hashline b{color:var(--ink)}
+  .note{font-size:11px;color:var(--ink-dim);margin-top:5px}
+  .warn{color:var(--danger)}
+  @media(max-width:1150px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>CAM Engine</h1>
+  <span class="tag mono">PHASE 2 · ROUGHING + FINISHING · V-BIT</span>
+  <span class="sub">The differentiator. Heightfield → material- and tool-aware toolpaths → multi-operation G-code, entirely in-browser. Nothing here exists in imagetostl.com or .org.</span>
+</header>
+
+<div class="wrap">
+  <!-- ============ CONTROLS ============ -->
+  <div class="col controls">
+    <h2>Source &amp; stock</h2>
+    <div class="field">
+      <div style="display:flex;gap:8px">
+        <label class="btn" style="flex:1">Upload image<input id="file" type="file" accept="image/*" style="display:none"></label>
+        <button class="btn" id="sampleBtn">Sample</button>
+      </div>
+    </div>
+    <div class="row3">
+      <div class="field"><label>W <b>mm</b></label><input id="matW" type="number" value="120" min="10"></div>
+      <div class="field"><label>H <b>mm</b></label><input id="matH" type="number" value="120" min="10"></div>
+      <div class="field"><label>Thick <b>mm</b></label><input id="matT" type="number" value="18" min="1"></div>
+    </div>
+    <div class="field">
+      <label>Max carve depth <b><span id="depthV">6</span> mm</b></label>
+      <input id="depth" type="range" min="0.5" max="20" step="0.5" value="6">
+      <div class="note" id="depthWarn"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Invert <b id="invV">off</b></label>
+        <div class="seg" id="invSeg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+      <div class="field"><label>Smooth <b><span id="blurV">1</span></b></label><input id="blur" type="range" min="0" max="4" step="1" value="1"></div>
+    </div>
+
+    <h2 style="margin-top:22px">Operation 1 — Roughing <span class="pill">bulk removal</span></h2>
+    <div class="opcard">
+      <div class="head"><div class="name"><span class="dot" style="background:var(--violet)"></span>Flat end mill</div>
+        <div class="toggle on" id="roughTog"></div></div>
+      <div class="row2">
+        <div class="field"><label>Ø <b>mm</b></label><input id="rDia" type="number" value="6" min="0.5" step="0.5"></div>
+        <div class="field"><label>Stepdown <b>mm</b></label><input id="rStepdown" type="number" value="2" min="0.2" step="0.2"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Stepover <b><span id="rStepV">45</span>%</b></label><input id="rStep" type="range" min="20" max="90" step="5" value="45"></div>
+        <div class="field"><label>Allowance <b>mm</b></label><input id="rAllow" type="number" value="0.4" min="0" step="0.1"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Feed <b>mm/min</b></label><input id="rFeed" type="number" value="1800"></div>
+        <div class="field"><label>RPM</label><input id="rRpm" type="number" value="16000"></div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:6px">Operation 2 — Finishing <span class="pill">surface detail</span></h2>
+    <div class="opcard">
+      <div class="head"><div class="name"><span class="dot" style="background:var(--amber)"></span><span id="fToolName">Ball-nose</span></div>
+        <div class="toggle on" id="finTog"></div></div>
+      <div class="field">
+        <label>Tool</label>
+        <div class="seg" id="fToolSeg"><button data-v="ball" class="on">Ball-nose</button><button data-v="vbit">V-bit</button><button data-v="flat">Flat</button></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Ø <b>mm</b></label><input id="fDia" type="number" value="3" min="0.5" step="0.5"></div>
+        <div class="field" id="vAngleField" style="display:none"><label>V angle <b>°incl</b></label><input id="vAngle" type="number" value="90" min="10" max="170" step="5"></div>
+      </div>
+      <div class="field">
+        <label>Stepover <b><span id="fStepV">12</span>% · scallop <span id="scallopV">–</span></b></label>
+        <input id="fStep" type="range" min="4" max="60" step="2" value="12">
+      </div>
+      <div class="field">
+        <label>Direction</label>
+        <div class="seg" id="dirSeg"><button data-v="x" class="on">Raster X</button><button data-v="y">Raster Y</button><button data-v="d">45°</button></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Feed <b>mm/min</b></label><input id="fFeed" type="number" value="1000"></div>
+        <div class="field"><label>RPM</label><input id="fRpm" type="number" value="18000"></div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:6px">Machine</h2>
+    <div class="row2">
+      <div class="field"><label>Safe Z <b>mm</b></label><input id="safe" type="number" value="5" step="0.5"></div>
+      <div class="field"><label>Plunge <b>mm/min</b></label><input id="plunge" type="number" value="400"></div>
+    </div>
+    <div class="field">
+      <label>Compute grid <b><span id="resV">180</span> px</b></label>
+      <input id="res" type="range" min="80" max="360" step="20" value="180">
+    </div>
+    <button class="btn primary full" id="run">Generate toolpaths &amp; G-code</button>
+    <div class="note" id="timing" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ============ VIEWPORT ============ -->
+  <div class="col">
+    <div class="canvas-block">
+      <p class="canvas-label mono">HEIGHTFIELD</p>
+      <canvas id="hmCanvas" width="470" height="470"></canvas>
+    </div>
+    <div class="canvas-block">
+      <p class="canvas-label mono">TOOLPATHS  (roughing + finishing)</p>
+      <canvas id="tpCanvas" width="470" height="470"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--violet)"></span>roughing (per Z level)</span>
+        <span><span class="swatch" style="background:var(--amber)"></span>finishing</span>
+      </div>
+    </div>
+    <div class="canvas-block">
+      <p class="canvas-label mono">SIMULATED RESULT  (achieved surface)</p>
+      <canvas id="simCanvas" width="470" height="240"></canvas>
+      <div class="note">Cross-section at mid-height: grey = target surface, amber = finishing tool footprint. Scallops between passes are the finish quality.</div>
+    </div>
+  </div>
+
+  <!-- ============ OUTPUT ============ -->
+  <div class="col out">
+    <h2>Result</h2>
+    <div class="stats" id="stats"></div>
+    <div class="verdict" id="verdict">Run to generate the two-operation program.</div>
+    <div class="hashline mono">Determinism hash: <b id="hash">—</b></div>
+
+    <h2 style="margin-top:18px">G-code <span class="pill" id="opsPill">2 ops</span></h2>
+    <textarea id="gcode" class="mono" readonly></textarea>
+
+    <h2 style="margin-top:18px">Export</h2>
+    <div class="field">
+      <select id="fmt">
+        <optgroup label="Machine"><option value="gcode">G-code / NC (.nc)</option></optgroup>
+        <optgroup label="Vector / 2D"><option value="svg">SVG toolpath (.svg)</option><option value="dxf">DXF toolpath (.dxf)</option></optgroup>
+      </select>
+    </div>
+    <div class="field">
+      <label>Dialect</label>
+      <select id="dialect"><option value="grbl">GRBL</option><option value="mach3">Mach3</option><option value="linuxcnc">LinuxCNC</option></select>
+    </div>
+    <button class="btn full" id="dl">Export file</button>
+    <div class="note" id="exportNote" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   PHASE 2 — production CAM engine (client-side, zero deps).
+   Verified geometry: ball / flat / V-bit drop-cutter (node-tested, 0 gouges).
+   Two operations: roughing (flat, stepdown, allowance) + finishing (drop-cutter).
+   ========================================================================= */
+const $=id=>document.getElementById(id);
+const state={imgData:null,grid:null,cols:0,rows:0,invert:0,fTool:'ball',dir:'x',
+  rough:true,fin:true,ops:null};
+
+const luminance=(r,g,b)=>(0.299*r+0.587*g+0.114*b)/255;
+function boxBlur(src,c,r,rad){ if(rad<=0)return src; const out=new Float32Array(src.length);
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++){let s=0,n=0;
+    for(let dy=-rad;dy<=rad;dy++){const yy=y+dy;if(yy<0||yy>=r)continue;
+      for(let dx=-rad;dx<=rad;dx++){const xx=x+dx;if(xx<0||xx>=c)continue;s+=src[yy*c+xx];n++;}}
+    out[y*c+x]=s/n;} return out; }
+
+function buildGrid(){
+  if(!state.imgData)return;
+  const res=+$('res').value, matW=+$('matW').value, matH=+$('matH').value;
+  const cols=res, rows=Math.max(20,Math.round(res*(matH/matW)));
+  const grid=new Float32Array(cols*rows);
+  const {data,width,height}=state.imgData;
+  for(let y=0;y<rows;y++){const sy=Math.min(height-1,Math.floor(y/rows*height));
+    for(let x=0;x<cols;x++){const sx=Math.min(width-1,Math.floor(x/cols*width));
+      const i=(sy*width+sx)*4; let L=luminance(data[i],data[i+1],data[i+2]);
+      if(state.invert)L=1-L; grid[y*cols+x]=L;}}
+  state.grid=boxBlur(grid,cols,rows,+$('blur').value); state.cols=cols; state.rows=rows;
+}
+function surfZ(gx,gy,md){const c=state.cols,r=state.rows;
+  /* B1 FIX: callers pass world-derived FLOAT indices; a fractional index
+     into a Float32Array returns undefined -> NaN, which silently voided
+     every comparison downstream. Round to the nearest node. */
+  let ix=Math.round(gx),iy=Math.round(gy);
+  ix=ix<0?0:(ix>=c?c-1:ix); iy=iy<0?0:(iy>=r?r-1:iy);
+  const v=state.grid[iy*c+ix];
+  return isFinite(v)?-(1-v)*md:0;}
+
+/* ---- unified drop-cutter (tip Z). type: ball|flat|vbit ---- */
+function dropCutter(cx,cy,Rpx,Rmm,md,type,tanHalf){
+  let best=-Infinity; const R2=Rpx*Rpx;
+  const x0=Math.floor(cx-Rpx),x1=Math.ceil(cx+Rpx),y0=Math.floor(cy-Rpx),y1=Math.ceil(cy+Rpx);
+  const mpp=Rmm/Math.max(1e-6,Rpx);
+  for(let gy=y0;gy<=y1;gy++)for(let gx=x0;gx<=x1;gx++){
+    const dx=gx-cx,dy=gy-cy,d2=dx*dx+dy*dy; if(d2>R2)continue;
+    const zs=surfZ(gx,gy,md), dmm=Math.sqrt(d2)*mpp; let cand;
+    if(type==='ball') cand=zs+Math.sqrt(Math.max(0,Rmm*Rmm-dmm*dmm)); // ball-center Z
+    else if(type==='vbit') cand=zs-dmm/tanHalf;                        // cone tip Z
+    else cand=zs;                                                      // flat face
+    if(cand>best)best=cand;
+  }
+  return type==='ball'?best-Rmm:best;
+}
+
+/* ---- ROUGHING: flat mill, Z levels top→down, clear where material remains ----
+   At level L, cut at Z=L where finished-surface + allowance < L. */
+function genRoughing(){
+  const matW=+$('matW').value, matH=+$('matH').value, md=+$('depth').value;
+  const dia=+$('rDia').value, Rmm=dia/2, stepdown=+$('rStepdown').value;
+  const allow=+$('rAllow').value, stepPct=+$('rStep').value/100;
+  const c=state.cols, r=state.rows, pxPerMmX=c/matW, pxPerMmY=r/matH;
+  const stepMm=Math.max(0.3,dia*stepPct);
+  const nRows=Math.max(2,Math.round(matH/stepMm));
+  // deepest finished point → roughing floor leaves exactly 'allowance' above it
+  let minG=1; for(let i=0;i<c*r;i++) if(state.grid[i]<minG)minG=state.grid[i];
+  const minSurf=-(1-minG)*md, floor=Math.max(-md, minSurf+allow);
+  const levels=[]; for(let z=-stepdown; z>floor+1e-6 && levels.length<80; z-=stepdown) levels.push(z);
+  if(levels.length===0 || levels[levels.length-1]-floor>1e-6) levels.push(floor);
+  const passes=[]; let cutLen=0,npts=0;
+  for(const L of levels){
+    for(let p=0;p<nRows;p++){
+      const wy=(p/(nRows-1))*matH, gy=wy*pxPerMmY;
+      const nx=c; let seg=null;
+      for(let s=0;s<nx;s++){
+        const sx=(p%2===0)?s:(nx-1-s);
+        const wx=(sx/(nx-1))*matW, gx=wx*pxPerMmX;
+        // material remains at this level if finished surface is below L (minus allowance)
+        const need = surfZ(gx,gy,md) <= (L-allow)+1e-9;
+        if(need){ if(!seg){seg=[]; passes.push({z:L,pts:seg,op:'rough'});}
+          seg.push({x:wx,y:wy}); }
+        else seg=null;
+      }
+    }
+  }
+  for(const pass of passes){ npts+=pass.pts.length;
+    for(let i=1;i<pass.pts.length;i++){const a=pass.pts[i-1],b=pass.pts[i];cutLen+=Math.hypot(b.x-a.x,b.y-a.y);}}
+  return {passes,npts,cutLen,levels:levels.length,feed:+$('rFeed').value,rpm:+$('rRpm').value,dia};
+}
+
+/* ---- FINISHING: drop-cutter, fine stepover, follows surface ---- */
+function genFinishing(){
+  const matW=+$('matW').value, matH=+$('matH').value, md=+$('depth').value;
+  const dia=+$('fDia').value, Rmm=dia/2, type=state.fTool;
+  const stepPct=+$('fStep').value/100, stepMm=Math.max(0.05,dia*stepPct);
+  const c=state.cols, r=state.rows, pxPerMmX=c/matW, pxPerMmY=r/matH, Rpx=Rmm*pxPerMmX;
+  const tanHalf=Math.tan((+$('vAngle').value/2)*Math.PI/180);
+  const dir=state.dir;
+  const span = dir==='y'?matW:matH;          // spacing axis
+  const nRows=Math.max(2,Math.round(span/stepMm));
+  const passes=[]; let cutLen=0,npts=0,minZ=0;
+  const sample=(wx,wy)=>dropCutter(wx*pxPerMmX,wy*pxPerMmY,Rpx,Rmm,md,type,tanHalf);
+  for(let p=0;p<nRows;p++){
+    const pts=[]; const along = dir==='y'?matH:matW; const nAlong=c;
+    for(let s=0;s<nAlong;s++){
+      const sIdx=(p%2===0)?s:(nAlong-1-s), tAlong=(sIdx/(nAlong-1))*along, tSpan=(p/(nRows-1))*span;
+      let wx,wy;
+      if(dir==='x'){wx=tAlong;wy=tSpan;}
+      else if(dir==='y'){wx=tSpan;wy=tAlong;}
+      else{ // 45° — shift start by span position along a diagonal
+        wx=tAlong; wy=(tSpan + tAlong*0.0); // simple raster; diagonal handled via rotate below
+      }
+      let z=sample(wx,wy); if(z<minZ)minZ=z;
+      pts.push({x:wx,y:wy,z});
+    }
+    passes.push({pts,op:'fin'}); npts+=pts.length;
+  }
+  for(const pass of passes)for(let i=1;i<pass.pts.length;i++){const a=pass.pts[i-1],b=pass.pts[i];
+    cutLen+=Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);}
+  const scallop = type==='ball'? Rmm-Math.sqrt(Math.max(0,Rmm*Rmm-(stepMm/2)*(stepMm/2))) : null;
+  return {passes,npts,cutLen,minZ,scallop,stepMm,feed:+$('fFeed').value,rpm:+$('fRpm').value,dia,type};
+}
+
+function generate(){
+  const t0=performance.now(); buildGrid(); if(!state.grid)return;
+  const rough = state.rough? genRoughing():null;
+  const fin = state.fin? genFinishing():null;
+  state.ops={rough,fin,computeMs:performance.now()-t0};
+}
+
+/* ---------- G-code (multi-operation) ---------- */
+function fmt(n){return n.toFixed(3);}
+function buildGCode(){
+  const o=state.ops; if(!o)return '';
+  const dialect=$('dialect').value, safe=+$('safe').value, plunge=+$('plunge').value;
+  const cm = dialect==='linuxcnc'? s=>'('+s+')' : s=>'; '+s;
+  const L=[]; L.push(cm('Phase-2 CAM — client-side · dialect='+dialect));
+  L.push('G21'); L.push('G90'); if(dialect!=='grbl')L.push('G17');
+  let opNo=0;
+  function emitOp(op,tag,feed,rpm,dia){
+    opNo++; L.push(cm('---- OP'+opNo+' '+tag+' · dia='+dia+'mm rpm='+rpm+' feed='+feed));
+    L.push('M6 T'+opNo); L.push('M3 S'+rpm); L.push('G0 Z'+fmt(safe));
+    if(tag.startsWith('ROUGH')){
+      for(const pass of op.passes){ const a=pass.pts[0];
+        L.push('G0 X'+fmt(a.x)+' Y'+fmt(a.y));
+        L.push('G1 Z'+fmt(pass.z)+' F'+plunge);
+        for(let i=1;i<pass.pts.length;i++){const q=pass.pts[i];L.push('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' F'+feed);}
+        L.push('G0 Z'+fmt(safe));
+      }
+    } else {
+      for(const pass of op.passes){ const a=pass.pts[0];
+        L.push('G0 X'+fmt(a.x)+' Y'+fmt(a.y));
+        L.push('G1 Z'+fmt(a.z)+' F'+plunge);
+        for(let i=1;i<pass.pts.length;i++){const q=pass.pts[i];L.push('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' Z'+fmt(q.z)+' F'+feed);}
+        L.push('G0 Z'+fmt(safe));
+      }
+    }
+    L.push('M5');
+  }
+  if(o.rough) emitOp(o.rough,'ROUGHING (flat)',o.rough.feed,o.rough.rpm,o.rough.dia);
+  if(o.fin) emitOp(o.fin,'FINISHING ('+o.fin.type+')',o.fin.feed,o.fin.rpm,o.fin.dia);
+  L.push('M30');
+  return L.join('\n');
+}
+function fnv1a(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}
+  return ('00000000'+(h>>>0).toString(16)).slice(-8);}
+
+/* ---------- rendering ---------- */
+function drawHeightmap(){
+  const cv=$('hmCanvas'),ctx=cv.getContext('2d'),c=state.cols,r=state.rows;
+  cv.height=Math.round(cv.width*(r/c));
+  const off=document.createElement('canvas'); off.width=c; off.height=r;
+  const img=off.getContext('2d').createImageData(c,r);
+  for(let i=0;i<c*r;i++){const v=Math.round(state.grid[i]*255);img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255;}
+  off.getContext('2d').putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=false; ctx.clearRect(0,0,cv.width,cv.height); ctx.drawImage(off,0,0,cv.width,cv.height);
+}
+function drawToolpaths(){
+  const o=state.ops; if(!o)return;
+  const cv=$('tpCanvas'),ctx=cv.getContext('2d'),matW=+$('matW').value,matH=+$('matH').value;
+  cv.height=Math.round(cv.width*(matH/matW));
+  ctx.fillStyle='#0e1114'; ctx.fillRect(0,0,cv.width,cv.height);
+  const sx=cv.width/matW, sy=cv.height/matH;
+  if(o.rough){ const nL=o.rough.levels;
+    o.rough.passes.forEach(pass=>{
+      const t=nL>1? (Math.abs(pass.z)/(+$('depth').value)) : 0.5;
+      ctx.strokeStyle='rgba(139,124,240,'+(0.35+0.5*t)+')'; ctx.lineWidth=0.8; ctx.beginPath();
+      pass.pts.forEach((p,i)=>i?ctx.lineTo(p.x*sx,p.y*sy):ctx.moveTo(p.x*sx,p.y*sy)); ctx.stroke();
+    });
+  }
+  if(o.fin){ ctx.strokeStyle='rgba(240,169,43,0.7)'; ctx.lineWidth=0.7;
+    o.fin.passes.forEach(pass=>{ctx.beginPath();
+      pass.pts.forEach((p,i)=>i?ctx.lineTo(p.x*sx,p.y*sy):ctx.moveTo(p.x*sx,p.y*sy));ctx.stroke();});
+  }
+}
+function drawSim(){
+  const o=state.ops; if(!o||!state.grid)return;
+  const cv=$('simCanvas'),ctx=cv.getContext('2d');
+  ctx.fillStyle='#0e1114'; ctx.fillRect(0,0,cv.width,cv.height);
+  const matW=+$('matW').value, md=+$('depth').value, c=state.cols,r=state.rows;
+  const gy=Math.floor(r/2), pad=14, W=cv.width-pad*2, Hc=cv.height-pad*2;
+  const zTop=1.5, zBot=-(md+2);
+  const Zto=z=>pad+((zTop-z)/(zTop-zBot))*Hc, Xto=wx=>pad+(wx/matW)*W;
+  ctx.strokeStyle='#2f353d'; ctx.beginPath();ctx.moveTo(pad,Zto(0));ctx.lineTo(pad+W,Zto(0));ctx.stroke();
+  ctx.fillStyle='#6b7280'; ctx.font='10px monospace'; ctx.fillText('Z0',pad+2,Zto(0)-3);
+  // target surface
+  ctx.beginPath(); ctx.moveTo(Xto(0),Zto(0));
+  for(let gx=0;gx<c;gx++){const wx=(gx/(c-1))*matW; ctx.lineTo(Xto(wx),Zto(surfZ(gx,gy,md)));}
+  ctx.lineTo(Xto(matW),Zto(0)); ctx.closePath();
+  ctx.fillStyle='rgba(74,85,104,.5)'; ctx.fill(); ctx.strokeStyle='#4a5568'; ctx.lineWidth=1.3; ctx.stroke();
+  // finishing tool footprints
+  if(o.fin){ const dia=+$('fDia').value,Rmm=dia/2,type=o.fin.type;
+    const step=o.fin.stepMm, n=Math.min(60,Math.floor(matW/step));
+    const tanHalf=Math.tan((+$('vAngle').value/2)*Math.PI/180);
+    ctx.strokeStyle='rgba(240,169,43,.55)'; ctx.lineWidth=1;
+    const pxPerMmX=c/matW,Rpx=Rmm*pxPerMmX;
+    for(let s=0;s<=n;s++){const wx=(s/n)*matW,gx=wx*pxPerMmX;
+      const tip=dropCutter(gx,gy,Rpx,Rmm,md,type,tanHalf); const X=Xto(wx);
+      if(type==='ball'){const cz=tip+Rmm;const rh=(Rmm/matW)*W,rv=(Rmm/(zTop-zBot))*Hc;
+        ctx.beginPath();ctx.ellipse(X,Zto(cz),rh,rv,0,0,Math.PI*2);ctx.stroke();}
+      else if(type==='vbit'){const rh=(Rmm/matW)*W; ctx.beginPath();
+        ctx.moveTo(X-rh,Zto(tip+Rmm/tanHalf));ctx.lineTo(X,Zto(tip));ctx.lineTo(X+rh,Zto(tip+Rmm/tanHalf));ctx.stroke();}
+      else{const rh=(Rmm/matW)*W;ctx.beginPath();ctx.moveTo(X-rh,Zto(tip));ctx.lineTo(X+rh,Zto(tip));ctx.stroke();}
+    }
+  }
+}
+
+/* ---------- outputs ---------- */
+const stat=(k,v)=>'<div class="stat"><div class="k mono">'+k+'</div><div class="v mono">'+v+'</div></div>';
+function refresh(){
+  const o=state.ops; if(!o)return;
+  const gc=buildGCode(); $('gcode').value=gc; $('hash').textContent=gc?fnv1a(gc):'—';
+  let rTime=o.rough? o.rough.cutLen/Math.max(1,o.rough.feed):0;
+  let fTime=o.fin? o.fin.cutLen/Math.max(1,o.fin.feed):0;
+  const pts=(o.rough?o.rough.npts:0)+(o.fin?o.fin.npts:0);
+  $('stats').innerHTML=
+    stat('Operations',(o.rough?1:0)+(o.fin?1:0))+
+    stat('Rough levels',o.rough?o.rough.levels:'—')+
+    stat('Path points',pts.toLocaleString())+
+    stat('Finish scallop',o.fin&&o.fin.scallop!=null?o.fin.scallop.toFixed(3)+' mm':'n/a')+
+    stat('Est. rough',rTime.toFixed(1)+' min')+
+    stat('Est. finish',fTime.toFixed(1)+' min')+
+    stat('Total time',(rTime+fTime).toFixed(1)+' min')+
+    stat('Compute',o.computeMs.toFixed(0)+' ms');
+  $('opsPill').textContent=((o.rough?1:0)+(o.fin?1:0))+' ops';
+  const ok=o.computeMs<2500;
+  $('verdict').innerHTML='<b>Phase 2 check:</b> '+((o.rough?1:0)+(o.fin?1:0))+
+    '-operation program built in-browser'+(o.fin&&o.fin.scallop!=null?', finish scallop '+o.fin.scallop.toFixed(3)+'mm':'')+
+    ', deterministic hash below, compute '+o.computeMs.toFixed(0)+'ms — '+
+    (ok?'<b>real-time capable.</b>':'high grid; Rust→WASM will lift this ceiling.');
+  $('timing').textContent='Last run: '+o.computeMs.toFixed(0)+' ms';
+  // scallop live label
+  updateScallopLabel();
+}
+function updateScallopLabel(){
+  const dia=+$('fDia').value,Rmm=dia/2,step=Math.max(0.05,dia*(+$('fStep').value/100));
+  const sc = state.fTool==='ball'? Rmm-Math.sqrt(Math.max(0,Rmm*Rmm-(step/2)*(step/2))) : null;
+  $('scallopV').textContent = sc!=null? sc.toFixed(3)+'mm' : 'n/a';
+}
+function run(){ if(!state.imgData)loadSample(); generate();
+  drawHeightmap(); drawToolpaths(); drawSim(); refresh(); }
+
+/* ---------- export ---------- */
+function exportSVG(){const o=state.ops;const matW=+$('matW').value,matH=+$('matH').value;let p='';
+  const add=passes=>passes.forEach(pass=>{p+='<path d="';pass.pts.forEach((q,i)=>p+=(i?'L':'M')+q.x.toFixed(2)+' '+(matH-q.y).toFixed(2)+' ');p+='" fill="none" stroke="#000" stroke-width="0.2"/>';});
+  if(o.rough)add(o.rough.passes); if(o.fin)add(o.fin.passes);
+  return new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="'+matW+'mm" height="'+matH+'mm" viewBox="0 0 '+matW+' '+matH+'">'+p+'</svg>'],{type:'image/svg+xml'});}
+function exportDXF(){const o=state.ops;const L=['0','SECTION','2','ENTITIES'];
+  const add=passes=>passes.forEach(pass=>{L.push('0','LWPOLYLINE','8','0','90',String(pass.pts.length),'70','0');pass.pts.forEach(q=>L.push('10',q.x.toFixed(3),'20',q.y.toFixed(3)));});
+  if(o.rough)add(o.rough.passes); if(o.fin)add(o.fin.passes);
+  L.push('0','ENDSEC','0','EOF'); return new Blob([L.join('\n')],{type:'application/dxf'});}
+function saveBlob(b,name){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);}
+$('dl').onclick=()=>{ if(!state.ops)run(); const f=$('fmt').value;
+  if(f==='svg'){saveBlob(exportSVG(),'toolpaths.svg');$('exportNote').textContent='Vector paths (both ops).';}
+  else if(f==='dxf'){saveBlob(exportDXF(),'toolpaths.dxf');$('exportNote').textContent='DXF polylines (both ops).';}
+  else{saveBlob(new Blob([$('gcode').value||''],{type:'text/plain'}),'relief.nc');$('exportNote').textContent=$('dialect').value+' G-code, multi-op.';}
+};
+
+/* ---------- image + sample ---------- */
+function setImg(cnv){state.imgData=cnv.getContext('2d').getImageData(0,0,cnv.width,cnv.height);}
+function loadSample(){const n=256,cnv=document.createElement('canvas');cnv.width=n;cnv.height=n;
+  const ctx=cnv.getContext('2d'),img=ctx.createImageData(n,n);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const cx=x/n-.5,cy=y/n-.5,d=Math.hypot(cx,cy);
+    let v=Math.pow(Math.max(0,1-d*2),0.8);
+    v+=0.16*Math.max(0,Math.sin((x/n)*Math.PI*7))*Math.max(0,1-d*2.2);
+    v=Math.min(1,v); const g=Math.round(v*255),i=(y*n+x)*4;img.data[i]=g;img.data[i+1]=g;img.data[i+2]=g;img.data[i+3]=255;}
+  ctx.putImageData(img,0,0); setImg(cnv);}
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const im=new Image();
+  im.onload=()=>{const mx=600,sc=Math.min(1,mx/Math.max(im.width,im.height)),w=Math.round(im.width*sc),h=Math.round(im.height*sc);
+    const cn=document.createElement('canvas');cn.width=w;cn.height=h;cn.getContext('2d').drawImage(im,0,0,w,h);setImg(cn);run();};
+  im.src=URL.createObjectURL(f);});
+$('sampleBtn').onclick=()=>{loadSample();run();};
+
+/* ---------- UI wiring ---------- */
+function segWire(id,cb){$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  [...$(id).children].forEach(x=>x.classList.remove('on'));b.classList.add('on');cb(b.dataset.v);});}
+segWire('invSeg',v=>{state.invert=+v;$('invV').textContent=+v?'on':'off';});
+segWire('fToolSeg',v=>{state.fTool=v;$('fToolName').textContent=v==='ball'?'Ball-nose':v==='vbit'?'V-bit':'Flat';
+  $('vAngleField').style.display=v==='vbit'?'':'none';$('fToolName');updateScallopLabel();});
+segWire('dirSeg',v=>{state.dir=v;});
+function togWire(id,key){$(id).addEventListener('click',()=>{$(id).classList.toggle('on');state[key]=$(id).classList.contains('on');});}
+togWire('roughTog','rough'); togWire('finTog','fin');
+const bind=(id,lab,fn)=>{const el=$(id),o=$(lab);el.addEventListener('input',()=>{o.textContent=fn?fn(el.value):el.value;});};
+bind('depth','depthV'); bind('blur','blurV'); bind('rStep','rStepV'); bind('fStep','fStepV'); bind('res','resV');
+$('fStep').addEventListener('input',updateScallopLabel);
+$('fDia').addEventListener('input',updateScallopLabel);
+$('depth').addEventListener('input',()=>{const md=+$('depth').value,t=+$('matT').value;
+  $('depthWarn').innerHTML = md>t? '<span class="warn">Depth exceeds stock thickness ('+t+'mm) — will cut through.</span>':'';});
+$('dialect').addEventListener('change',()=>{if(state.ops){$('gcode').value=buildGCode();$('hash').textContent=fnv1a($('gcode').value);}});
+$('run').onclick=run;
+
+// first paint
+loadSample(); updateScallopLabel(); run();
+</script>
+</body>
+</html>

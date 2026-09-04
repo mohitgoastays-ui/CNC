@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drop-Cutter Spike — Phase 0</title>
+<style>
+  /* ---- Design tokens: precision-instrument / machinist workspace ----
+     graphite base, safety-amber accent (tool/warning color), cutting-cyan
+     for the live toolpath. Monospace is used ONLY for real machine data
+     (coordinates, G-code, stats) where it is information, not decoration. */
+  :root{
+    --bg:#15181c;
+    --panel:#1c2025;
+    --panel-2:#232830;
+    --line:#2f353d;
+    --ink:#e6e9ec;
+    --ink-dim:#9aa3ad;
+    --amber:#f0a92b;      /* tool / tip path */
+    --cyan:#38d6c8;       /* cutting move */
+    --stock:#3a4049;
+    --danger:#ff6b57;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Inter","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.5}
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .tag{color:var(--amber);font-size:12px;letter-spacing:.06em}
+  header .sub{color:var(--ink-dim);font-size:12.5px;margin-left:auto;max-width:520px}
+  .wrap{display:grid;grid-template-columns:300px 1fr 380px;gap:1px;background:var(--line);
+    min-height:calc(100vh - 61px)}
+  .col{background:var(--bg);padding:20px;overflow:auto}
+  .col.controls{background:var(--panel)}
+  .col.out{background:var(--panel)}
+  h2{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink-dim);
+    margin:0 0 12px;text-transform:uppercase}
+  .field{margin-bottom:16px}
+  .field label{display:flex;justify-content:space-between;margin-bottom:6px;font-size:12.5px;color:var(--ink-dim)}
+  .field label b{color:var(--ink);font-weight:500}
+  input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer}
+  input[type=number],select{width:100%;background:var(--panel-2);border:1px solid var(--line);
+    color:var(--ink);border-radius:6px;padding:8px 10px;font-size:13px}
+  input[type=number]:focus,select:focus{outline:2px solid var(--amber);outline-offset:-1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel-2);border:0;color:var(--ink-dim);padding:8px;
+    font-size:12.5px;cursor:pointer}
+  .seg button.on{background:var(--amber);color:#1a1a1a;font-weight:600}
+  .filerow{display:flex;gap:8px}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);
+    border-radius:6px;padding:9px 12px;font-size:13px;cursor:pointer;text-align:center}
+  .btn:hover{border-color:var(--amber)}
+  .btn.primary{background:var(--amber);color:#1a1a1a;border-color:var(--amber);font-weight:600}
+  .btn.full{width:100%}
+  canvas{display:block;background:#0e1114;border:1px solid var(--line);border-radius:8px;width:100%}
+  .canvas-label{font-size:11px;color:var(--ink-dim);margin:0 0 8px;letter-spacing:.04em}
+  .canvas-block{margin-bottom:22px}
+  .legend{display:flex;gap:16px;font-size:11.5px;color:var(--ink-dim);margin-top:8px;flex-wrap:wrap}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:16px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:10px 12px}
+  .stat .k{font-size:10.5px;color:var(--ink-dim);letter-spacing:.05em}
+  .stat .v{font-size:16px;margin-top:2px}
+  .verdict{border:1px solid var(--line);border-left:3px solid var(--amber);
+    background:var(--panel-2);border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:12.5px}
+  .verdict b{color:var(--amber)}
+  textarea{width:100%;height:260px;background:#0e1114;border:1px solid var(--line);
+    color:var(--cyan);border-radius:8px;padding:12px;font-size:12px;resize:vertical;
+    font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+  .hashline{font-size:11.5px;color:var(--ink-dim);margin:10px 0;word-break:break-all}
+  .hashline b{color:var(--ink)}
+  .note{font-size:11.5px;color:var(--ink-dim);margin-top:6px}
+  @media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Drop-Cutter Spike</h1>
+  <span class="tag mono">PHASE 0 · CLIENT-SIDE CAM PROOF</span>
+  <span class="sub">Image → heightfield → ball-nose drop-cutter → G-code, computed entirely in your browser.
+   No upload, no server, no libraries. The cross-section proves the tool follows the surface without gouging.</span>
+</header>
+
+<div class="wrap">
+  <!-- ================= CONTROLS ================= -->
+  <div class="col controls">
+    <h2>Source</h2>
+    <div class="field">
+      <div class="filerow">
+        <label class="btn" style="flex:1">Upload image
+          <input id="file" type="file" accept="image/*" style="display:none">
+        </label>
+        <button class="btn" id="sampleBtn">Sample</button>
+      </div>
+      <div class="note">Brightness = height. Light carves shallow, dark carves deep.</div>
+    </div>
+    <div class="field">
+      <label>Invert height <b id="invV">off</b></label>
+      <div class="seg" id="invSeg">
+        <button data-v="0" class="on">Off</button>
+        <button data-v="1">On</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Pre-blur (smoothing) <b><span id="blurV">1</span> px</b></label>
+      <input id="blur" type="range" min="0" max="4" step="1" value="1">
+      <div class="note">Tames spikes from contrasting pixels before machining.</div>
+    </div>
+
+    <h2 style="margin-top:26px">Stock</h2>
+    <div class="row2">
+      <div class="field"><label>Width <b>mm</b></label><input id="matW" type="number" value="120" min="10"></div>
+      <div class="field"><label>Height <b>mm</b></label><input id="matH" type="number" value="120" min="10"></div>
+    </div>
+    <div class="field">
+      <label>Max carve depth <b><span id="depthV">6</span> mm</b></label>
+      <input id="depth" type="range" min="0.5" max="20" step="0.5" value="6">
+    </div>
+
+    <h2 style="margin-top:26px">Tool</h2>
+    <div class="field">
+      <label>Type <b id="toolV">Ball-nose</b></label>
+      <div class="seg" id="toolSeg">
+        <button data-v="ball" class="on">Ball-nose</button>
+        <button data-v="flat">Flat</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Diameter <b><span id="diaV">3</span> mm</b></label>
+      <input id="dia" type="range" min="0.5" max="12" step="0.5" value="3">
+    </div>
+    <div class="field">
+      <label>Stepover <b><span id="stepV">30</span> %</b></label>
+      <input id="step" type="range" min="10" max="90" step="5" value="30">
+    </div>
+
+    <h2 style="margin-top:26px">Compute / Machine</h2>
+    <div class="field">
+      <label>Toolpath resolution <b><span id="resV">160</span> px</b></label>
+      <input id="res" type="range" min="60" max="320" step="20" value="160">
+      <div class="note">Grid the drop-cutter samples. Higher = finer & slower (WASM territory in Phase 2).</div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Feed <b>mm/min</b></label><input id="feed" type="number" value="1200" min="1"></div>
+      <div class="field"><label>Safe Z <b>mm</b></label><input id="safe" type="number" value="5" min="0.5" step="0.5"></div>
+    </div>
+
+    <button class="btn primary full" id="run" style="margin-top:8px">Generate toolpath &amp; G-code</button>
+    <div class="note" id="timing" style="margin-top:10px"></div>
+  </div>
+
+  <!-- ================= VIEWPORT ================= -->
+  <div class="col">
+    <div class="canvas-block">
+      <p class="canvas-label mono">HEIGHTFIELD  (grayscale → Z)</p>
+      <canvas id="hmCanvas" width="480" height="480"></canvas>
+    </div>
+    <div class="canvas-block">
+      <p class="canvas-label mono">TOOLPATH  (top view · colored by cut depth)</p>
+      <canvas id="tpCanvas" width="480" height="480"></canvas>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--cyan)"></span>shallow cut</span>
+        <span><span class="swatch" style="background:var(--amber)"></span>deep cut</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= OUTPUT / PROOF ================= -->
+  <div class="col out">
+    <h2>Correctness proof — cross-section</h2>
+    <div class="field">
+      <label>Scan line <b><span id="sliceV">50</span> %</b></label>
+      <input id="slice" type="range" min="0" max="100" step="1" value="50">
+    </div>
+    <canvas id="csCanvas" width="360" height="180"></canvas>
+    <div class="legend">
+      <span><span class="swatch" style="background:#4a5568"></span>finished surface</span>
+      <span><span class="swatch" style="background:var(--amber)"></span>tool tip path</span>
+      <span><span class="swatch" style="background:rgba(56,214,200,.5)"></span>tool at samples</span>
+    </div>
+    <p class="note">The tool circles sit <i>on</i> the surface, never below it. That is the drop-cutter working — the whole thesis in one picture.</p>
+
+    <h2 style="margin-top:24px">Result</h2>
+    <div class="stats" id="stats"></div>
+
+    <div class="verdict" id="verdict">Run the spike to see the exit-criteria check.</div>
+
+    <div class="hashline mono">Determinism hash: <b id="hash">—</b></div>
+    <p class="note">Run twice with identical settings — the hash must match. That is the "production accuracy / repeatability" guarantee, live.</p>
+
+    <textarea id="gcode" class="mono" readonly placeholder="; G-code appears here"></textarea>
+
+    <h2 style="margin-top:22px">Export</h2>
+    <div class="field">
+      <label>Format <b id="fmtHint">mesh / vector / machine</b></label>
+      <select id="fmt">
+        <optgroup label="Mesh — 3D surface">
+          <option value="stlb">STL — binary (.stl)</option>
+          <option value="stla">STL — ASCII (.stl)</option>
+          <option value="obj">OBJ (.obj)</option>
+          <option value="ply">PLY (.ply)</option>
+          <option value="3mf">3MF (.3mf)</option>
+          <option value="gltf">glTF (.gltf)</option>
+        </optgroup>
+        <optgroup label="Vector / 2D">
+          <option value="svg">SVG toolpath (.svg)</option>
+          <option value="dxf">DXF toolpath (.dxf)</option>
+          <option value="png">Depth map (.png)</option>
+        </optgroup>
+        <optgroup label="Machine">
+          <option value="gcode">G-code / NC (.nc)</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="field" id="dialectField">
+      <label>G-code dialect <b></b></label>
+      <select id="dialect">
+        <option value="grbl">GRBL (generic)</option>
+        <option value="mach3">Mach3</option>
+        <option value="linuxcnc">LinuxCNC</option>
+      </select>
+    </div>
+    <button class="btn full" id="dl">Export file</button>
+    <div class="note" id="exportNote" style="margin-top:8px"></div>
+
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--ink-dim);font-size:12px">Which formats are in scope — and why</summary>
+      <div style="font-size:11.8px;color:var(--ink-dim);margin-top:10px;line-height:1.6">
+        <p style="margin:0 0 8px"><b style="color:var(--cyan)">In scope — real, accurate output from a heightfield:</b><br>
+        STL · OBJ · PLY · 3MF · glTF (mesh) · SVG · DXF (vector/engraving) · depth PNG · G-code/NC. These derive directly from the depth surface, so they stay dimensionally honest.</p>
+        <p style="margin:0"><b style="color:var(--danger)">Out of scope by design — would be fake conversions:</b><br>
+        STEP · IGES · SAT · Parasolid are parametric B-rep solids; SLDPRT · IPT · CATPart · F3D · 3DXML · DWG · FBX are vendor-proprietary. A relief heightmap has no parametric feature tree, so producing these needs a full CAD kernel or the vendor's own software — forcing them would emit broken/meaningless files (exactly the overclaim we're avoiding).</p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   PHASE 0 SPIKE — heightfield drop-cutter, pure vanilla JS + Canvas.
+   Deliberately zero-dependency to prove the "runs anywhere, no backend"
+   thesis. Well-commented so it doubles as the algorithm reference for Phase 2.
+   ========================================================================= */
+
+const $ = id => document.getElementById(id);
+
+// ---- app state ----
+const state = {
+  imgData: null,     // ImageData of the source (native res)
+  grid: null,        // Float32Array heightfield, values 0..1 (1 = surface top)
+  cols: 0, rows: 0,
+  toolpath: null,    // {passes:[[{x,y,z}...]], stats}
+  invert: 0,
+  tool: 'ball'
+};
+
+// ---------- helpers ----------
+const luminance = (r,g,b) => (0.299*r + 0.587*g + 0.114*b) / 255;
+
+function boxBlur(src, cols, rows, radius){
+  if(radius<=0) return src;
+  const out = new Float32Array(src.length);
+  const k = radius;
+  for(let y=0;y<rows;y++){
+    for(let x=0;x<cols;x++){
+      let sum=0,n=0;
+      for(let dy=-k;dy<=k;dy++){
+        const yy=y+dy; if(yy<0||yy>=rows) continue;
+        for(let dx=-k;dx<=k;dx++){
+          const xx=x+dx; if(xx<0||xx>=cols) continue;
+          sum+=src[yy*cols+xx]; n++;
+        }
+      }
+      out[y*cols+x]=sum/n;
+    }
+  }
+  return out;
+}
+
+// Build the heightfield grid at the chosen compute resolution.
+// height value in [0,1]; 1 = at stock top (no cut), 0 = deepest.
+function buildGrid(){
+  if(!state.imgData) return;
+  const res = +$('res').value;
+  const matW = +$('matW').value, matH = +$('matH').value;
+  const aspect = matH/matW;
+  const cols = res;
+  const rows = Math.max(20, Math.round(res*aspect));
+  const grid = new Float32Array(cols*rows);
+
+  // sample source image into the grid (nearest — deterministic)
+  const {data,width,height} = state.imgData;
+  for(let y=0;y<rows;y++){
+    const sy = Math.min(height-1, Math.floor(y/rows*height));
+    for(let x=0;x<cols;x++){
+      const sx = Math.min(width-1, Math.floor(x/cols*width));
+      const i = (sy*width+sx)*4;
+      let L = luminance(data[i],data[i+1],data[i+2]);
+      if(state.invert) L = 1-L;
+      grid[y*cols+x] = L;
+    }
+  }
+  const blurred = boxBlur(grid, cols, rows, +$('blur').value);
+  state.grid = blurred; state.cols = cols; state.rows = rows;
+}
+
+// finished surface Z (<=0) at grid cell — carve downward from stock top (0)
+function surfZ(gx,gy,maxDepth){
+  const c=state.cols,r=state.rows;
+  gx = gx<0?0:(gx>=c?c-1:gx);
+  gy = gy<0?0:(gy>=r?r-1:gy);
+  return -(1 - state.grid[gy*c+gx]) * maxDepth; // white(1)->0, black(0)->-maxDepth
+}
+
+/* -------- THE CORE: drop-cutter on a heightfield --------
+   Given tool center (cx,cy) in grid coords, return the tool-TIP Z so the
+   tool rests on the surface without gouging anywhere in its footprint.
+
+   Ball-nose radius r:  Zcenter = max( Zsurf + r - sqrt(r^2 - d^2) )
+                        Ztip    = Zcenter - r
+   Flat  radius r:      Ztip    = max( Zsurf ) over the disc
+   (max over the footprint = the highest constraint = no gouge) */
+function dropCutter(cx, cy, toolRpx, toolRmm, maxDepth, isBall){
+  const c=state.cols;
+  let best = -Infinity;
+  const R2 = toolRpx*toolRpx;
+  const x0=Math.floor(cx-toolRpx), x1=Math.ceil(cx+toolRpx);
+  const y0=Math.floor(cy-toolRpx), y1=Math.ceil(cy+toolRpx);
+  const mmPerPx = toolRmm/Math.max(1e-6,toolRpx); // convert pixel offset -> mm
+  for(let gy=y0;gy<=y1;gy++){
+    for(let gx=x0;gx<=x1;gx++){
+      const dx=gx-cx, dy=gy-cy;
+      const d2=dx*dx+dy*dy;
+      if(d2>R2) continue;
+      const zs=surfZ(gx,gy,maxDepth);
+      if(isBall){
+        // sphere bottom at offset d = Zc - sqrt(r^2 - d^2); no-gouge =>
+        // Zc >= surf + sqrt(r^2 - d^2). Take the max over the footprint.
+        const dmm = Math.sqrt(d2)*mmPerPx;
+        const cand = zs + Math.sqrt(Math.max(0,toolRmm*toolRmm - dmm*dmm));
+        if(cand>best) best=cand;          // best = required ball-center Z
+      }else{
+        if(zs>best) best=zs;              // flat: highest surface point wins
+      }
+    }
+  }
+  return isBall ? best - toolRmm : best;   // ball: center->tip ; flat: tip = face
+}
+
+// Generate raster toolpath (boustrophedon) with stepover.
+function generateToolpath(){
+  const t0=performance.now();
+  buildGrid();
+  if(!state.grid) return;
+
+  const matW=+$('matW').value, matH=+$('matH').value;
+  const maxDepth=+$('depth').value;
+  const dia=+$('dia').value, toolRmm=dia/2;
+  const isBall = state.tool==='ball';
+  const stepPct=+$('step').value/100;
+
+  const c=state.cols, r=state.rows;
+  const pxPerMmX = c/matW, pxPerMmY = r/matH;
+  const toolRpx = toolRmm*pxPerMmX;
+
+  // stepover in mm -> rows spacing in world Y
+  const stepMm = Math.max(0.2, dia*stepPct);
+  const nPasses = Math.max(2, Math.round(matH/stepMm));
+  const passes=[];
+  let minZ=0, pathLenMm=0, npts=0;
+
+  for(let p=0;p<nPasses;p++){
+    const wy = (p/(nPasses-1))*matH;          // world Y in mm
+    const gy = wy*pxPerMmY;
+    // samples along X — resolution tied to grid cols for fidelity
+    const nx = c;
+    const line=[];
+    for(let s=0;s<nx;s++){
+      const sx = (p%2===0) ? s : (nx-1-s);     // zig-zag
+      const wx = (sx/(nx-1))*matW;
+      const gx = wx*pxPerMmX;
+      const z = dropCutter(gx, gy, toolRpx, toolRmm, maxDepth, isBall);
+      line.push({x:wx, y:wy, z:z});
+      if(z<minZ) minZ=z;
+    }
+    passes.push(line);
+    npts+=line.length;
+  }
+  // path length (cutting moves only)
+  for(const line of passes){
+    for(let i=1;i<line.length;i++){
+      const a=line[i-1],b=line[i];
+      pathLenMm+=Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z);
+    }
+  }
+  const feed=+$('feed').value;
+  const estMin = pathLenMm/Math.max(1,feed);
+
+  state.toolpath={passes, stats:{minZ,pathLenMm,npts,nPasses,estMin,
+    computeMs: performance.now()-t0}};
+}
+
+// ---------- G-code ----------
+function fmt(n){ return n.toFixed(3); }
+function buildGCode(){
+  const tp=state.toolpath; if(!tp) return '';
+  const safe=+$('safe').value, feed=+$('feed').value;
+  const dia=+$('dia').value;
+  const dialect=($('dialect')&&$('dialect').value)||'grbl';
+  const cm = dialect==='linuxcnc' ? s=>'('+s+')' : s=>'; '+s; // LinuxCNC uses () comments
+  const spindleOn = dialect==='grbl' ? 'M3 S12000' : 'M3 S12000';
+  const L=[];
+  L.push(cm('Phase-0 drop-cutter spike — generated 100% client-side'));
+  L.push(cm('dialect='+dialect+' tool='+state.tool+' dia='+dia+'mm feed='+feed+' safeZ='+safe));
+  L.push(cm('stock='+$('matW').value+'x'+$('matH').value+'mm maxDepth='+$('depth').value+'mm'));
+  L.push('G21');           // mm
+  L.push('G90');           // absolute
+  if(dialect==='mach3'||dialect==='linuxcnc') L.push('G17'); // XY plane
+  L.push(spindleOn);
+  L.push('G0 Z'+fmt(safe));
+  for(const line of tp.passes){
+    const a=line[0];
+    L.push('G0 X'+fmt(a.x)+' Y'+fmt(a.y));       // rapid to pass start
+    L.push('G1 Z'+fmt(a.z)+' F'+feed);           // plunge
+    for(let i=1;i<line.length;i++){
+      const q=line[i];
+      L.push('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' Z'+fmt(q.z));
+    }
+    L.push('G0 Z'+fmt(safe));                      // retract between passes
+  }
+  L.push('M5');            // spindle off
+  L.push('M30');           // end
+  return L.join('\n');
+}
+
+// deterministic FNV-1a hash so the user can verify repeatability
+function fnv1a(str){
+  let h=0x811c9dc5;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,0x01000193); }
+  return ('00000000'+(h>>>0).toString(16)).slice(-8);
+}
+
+/* =========================================================================
+   MESH GENERATION — heightfield → watertight triangle mesh (surface + base
+   + 4 walls). This feeds every mesh format (STL/OBJ/PLY/3MF/glTF) so they
+   all describe the same physical part. Also advances toward Phase 1.
+   ========================================================================= */
+function buildMesh(){
+  if(!state.grid) buildGrid();
+  const matW=+$('matW').value, matH=+$('matH').value, maxDepth=+$('depth').value;
+  const c=state.cols, r=state.rows;
+  const baseZ = -(maxDepth) - 2;              // flat base, 2mm below deepest cut
+  const V=[]; const T=[];
+  const wx=x=>(x/(c-1))*matW, wy=y=>(y/(r-1))*matH;
+  // top surface vertices + triangles
+  for(let y=0;y<r;y++) for(let x=0;x<c;x++) V.push([wx(x),wy(y),surfZ(x,y,maxDepth)]);
+  const id=(x,y)=>y*c+x;
+  for(let y=0;y<r-1;y++) for(let x=0;x<c-1;x++){
+    const a=id(x,y),b=id(x+1,y),d=id(x,y+1),e=id(x+1,y+1);
+    T.push([a,b,e]); T.push([a,e,d]);
+  }
+  // 4 walls (skirt) from top border down to baseZ
+  function wall(pts){                          // pts: ordered [x,y,zTop]
+    for(let i=0;i<pts.length-1;i++){
+      const p0=pts[i],p1=pts[i+1];
+      const A=V.length; V.push([p0[0],p0[1],p0[2]]);
+      const B=V.length; V.push([p1[0],p1[1],p1[2]]);
+      const C=V.length; V.push([p1[0],p1[1],baseZ]);
+      const D=V.length; V.push([p0[0],p0[1],baseZ]);
+      T.push([A,B,C]); T.push([A,C,D]);
+    }
+  }
+  const top=[],right=[],bot=[],left=[];
+  for(let x=0;x<c;x++) top.push([wx(x),wy(0),surfZ(x,0,maxDepth)]);
+  for(let y=0;y<r;y++) right.push([wx(c-1),wy(y),surfZ(c-1,y,maxDepth)]);
+  for(let x=c-1;x>=0;x--) bot.push([wx(x),wy(r-1),surfZ(x,r-1,maxDepth)]);
+  for(let y=r-1;y>=0;y--) left.push([wx(0),wy(y),surfZ(0,y,maxDepth)]);
+  wall(top); wall(right); wall(bot); wall(left);
+  // base (2 triangles, coplanar with wall bottoms → gap-free)
+  const b0=V.length;
+  V.push([0,0,baseZ],[matW,0,baseZ],[matW,matH,baseZ],[0,matH,baseZ]);
+  T.push([b0+0,b0+2,b0+1]); T.push([b0+0,b0+3,b0+2]);
+  return {V,T};
+}
+function triNormal(a,b,c){
+  const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2];
+  const vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+  let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+  const L=Math.hypot(nx,ny,nz)||1; return [nx/L,ny/L,nz/L];
+}
+
+/* ---------- mesh exporters ---------- */
+function exportSTLbinary(m){
+  const {V,T}=m, n=T.length;
+  const buf=new ArrayBuffer(84+n*50), dv=new DataView(buf);
+  dv.setUint32(80,n,true); let o=84;
+  for(const t of T){
+    const a=V[t[0]],b=V[t[1]],c=V[t[2]], nn=triNormal(a,b,c);
+    dv.setFloat32(o,nn[0],true);dv.setFloat32(o+4,nn[1],true);dv.setFloat32(o+8,nn[2],true);o+=12;
+    for(const p of [a,b,c]){dv.setFloat32(o,p[0],true);dv.setFloat32(o+4,p[1],true);dv.setFloat32(o+8,p[2],true);o+=12;}
+    dv.setUint16(o,0,true); o+=2;
+  }
+  return new Blob([buf],{type:'application/octet-stream'});
+}
+function exportSTLascii(m){
+  const {V,T}=m, L=['solid relief'];
+  for(const t of T){
+    const a=V[t[0]],b=V[t[1]],c=V[t[2]], nn=triNormal(a,b,c);
+    L.push(' facet normal '+nn.map(fmt).join(' '));
+    L.push('  outer loop');
+    for(const p of [a,b,c]) L.push('   vertex '+p.map(fmt).join(' '));
+    L.push('  endloop'); L.push(' endfacet');
+  }
+  L.push('endsolid relief');
+  return new Blob([L.join('\n')],{type:'text/plain'});
+}
+function exportOBJ(m){
+  const {V,T}=m, L=['# relief mesh — Phase 0 spike'];
+  for(const v of V) L.push('v '+v.map(fmt).join(' '));
+  for(const t of T) L.push('f '+(t[0]+1)+' '+(t[1]+1)+' '+(t[2]+1));
+  return new Blob([L.join('\n')],{type:'text/plain'});
+}
+function exportPLY(m){
+  const {V,T}=m, L=[];
+  L.push('ply','format ascii 1.0','comment relief mesh — Phase 0 spike',
+    'element vertex '+V.length,'property float x','property float y','property float z',
+    'element face '+T.length,'property list uchar int vertex_indices','end_header');
+  for(const v of V) L.push(v.map(fmt).join(' '));
+  for(const t of T) L.push('3 '+t.join(' '));
+  return new Blob([L.join('\n')],{type:'text/plain'});
+}
+function export3MF(m){
+  // 3MF = zip(XML). Build a store-only (uncompressed) zip in-browser, no libs.
+  const {V,T}=m;
+  let mesh='<mesh><vertices>';
+  for(const v of V) mesh+='<vertex x="'+fmt(v[0])+'" y="'+fmt(v[1])+'" z="'+fmt(v[2])+'"/>';
+  mesh+='</vertices><triangles>';
+  for(const t of T) mesh+='<triangle v1="'+t[0]+'" v2="'+t[1]+'" v3="'+t[2]+'"/>';
+  mesh+='</triangles></mesh>';
+  const model='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'+
+    '<resources><object id="1" type="model">'+mesh+'</object></resources>'+
+    '<build><item objectid="1"/></build></model>';
+  const rels='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    '<Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>';
+  const ct='<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>';
+  return zipStore([
+    {name:'[Content_Types].xml',data:ct},
+    {name:'_rels/.rels',data:rels},
+    {name:'3D/3dmodel.model',data:model}
+  ],'model/3mf');
+}
+function exportGLTF(m){
+  // self-contained glTF with base64 buffer (no libs)
+  const {V,T}=m;
+  const pos=new Float32Array(V.length*3);
+  let mnx=Infinity,mny=Infinity,mnz=Infinity,mxx=-Infinity,mxy=-Infinity,mxz=-Infinity;
+  V.forEach((v,i)=>{pos[i*3]=v[0];pos[i*3+1]=v[1];pos[i*3+2]=v[2];
+    mnx=Math.min(mnx,v[0]);mny=Math.min(mny,v[1]);mnz=Math.min(mnz,v[2]);
+    mxx=Math.max(mxx,v[0]);mxy=Math.max(mxy,v[1]);mxz=Math.max(mxz,v[2]);});
+  const idx=new Uint32Array(T.length*3);
+  T.forEach((t,i)=>{idx[i*3]=t[0];idx[i*3+1]=t[1];idx[i*3+2]=t[2];});
+  const posB=new Uint8Array(pos.buffer), idxB=new Uint8Array(idx.buffer);
+  const total=new Uint8Array(posB.length+idxB.length);
+  total.set(posB,0); total.set(idxB,posB.length);
+  const b64=base64(total);
+  const gltf={asset:{version:"2.0",generator:"Phase0 spike"},
+    buffers:[{byteLength:total.length,uri:"data:application/octet-stream;base64,"+b64}],
+    bufferViews:[
+      {buffer:0,byteOffset:0,byteLength:posB.length,target:34962},
+      {buffer:0,byteOffset:posB.length,byteLength:idxB.length,target:34963}],
+    accessors:[
+      {bufferView:0,componentType:5126,count:V.length,type:"VEC3",min:[mnx,mny,mnz],max:[mxx,mxy,mxz]},
+      {bufferView:1,componentType:5125,count:T.length*3,type:"SCALAR"}],
+    meshes:[{primitives:[{attributes:{POSITION:0},indices:1}]}],
+    nodes:[{mesh:0}], scenes:[{nodes:[0]}], scene:0};
+  return new Blob([JSON.stringify(gltf)],{type:'model/gltf+json'});
+}
+
+/* ---------- vector / 2D exporters ---------- */
+function exportSVG(){
+  const tp=state.toolpath; if(!tp) return new Blob([''],{type:'image/svg+xml'});
+  const matW=+$('matW').value, matH=+$('matH').value;
+  let p='';
+  for(const line of tp.passes){
+    p+='<path d="';
+    line.forEach((q,i)=>{ p+=(i?'L':'M')+q.x.toFixed(2)+' '+(matH-q.y).toFixed(2)+' '; });
+    p+='" fill="none" stroke="#000" stroke-width="0.2"/>';
+  }
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+matW+'mm" height="'+matH+
+    'mm" viewBox="0 0 '+matW+' '+matH+'">'+p+'</svg>';
+  return new Blob([svg],{type:'image/svg+xml'});
+}
+function exportDXF(){
+  const tp=state.toolpath; if(!tp) return new Blob([''],{type:'application/dxf'});
+  const L=['0','SECTION','2','ENTITIES'];
+  for(const line of tp.passes){
+    L.push('0','LWPOLYLINE','8','0','90',String(line.length),'70','0');
+    for(const q of line){ L.push('10',q.x.toFixed(3),'20',q.y.toFixed(3)); }
+  }
+  L.push('0','ENDSEC','0','EOF');
+  return new Blob([L.join('\n')],{type:'application/dxf'});
+}
+function exportDepthPNG(){
+  const c=state.cols,r=state.rows;
+  const cnv=document.createElement('canvas'); cnv.width=c; cnv.height=r;
+  const ctx=cnv.getContext('2d'); const img=ctx.createImageData(c,r);
+  for(let i=0;i<c*r;i++){ const v=Math.round(state.grid[i]*255);
+    img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255; }
+  ctx.putImageData(img,0,0);
+  return new Promise(res=>cnv.toBlob(res,'image/png'));
+}
+
+/* ---------- tiny helpers: base64 + store-only zip (no dependencies) ---------- */
+function base64(bytes){
+  let bin=''; const CH=0x8000;
+  for(let i=0;i<bytes.length;i+=CH) bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));
+  return btoa(bin);
+}
+function crc32(buf){
+  let c=~0; for(let i=0;i<buf.length;i++){ c^=buf[i];
+    for(let k=0;k<8;k++) c=(c>>>1)^(0xEDB88320&-(c&1)); } return ~c>>>0;
+}
+function zipStore(files,mime){
+  const enc=new TextEncoder(); const parts=[]; const central=[]; let offset=0;
+  for(const f of files){
+    const name=enc.encode(f.name); const data=enc.encode(f.data); const crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0,true);
+    lh.setUint16(8,0,true); lh.setUint16(10,0,true); lh.setUint16(12,0,true);
+    lh.setUint32(14,crc,true); lh.setUint32(18,data.length,true); lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer),name,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true);
+    ch.setUint32(16,crc,true); ch.setUint32(20,data.length,true); ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true); ch.setUint32(42,offset,true);
+    central.push({hdr:new Uint8Array(ch.buffer),name});
+    offset+=30+name.length+data.length;
+  }
+  const cstart=offset; let clen=0; const cparts=[];
+  for(const c of central){ cparts.push(c.hdr,c.name); clen+=c.hdr.length+c.name.length; }
+  const eo=new DataView(new ArrayBuffer(22));
+  eo.setUint32(0,0x06054b50,true); eo.setUint16(8,files.length,true); eo.setUint16(10,files.length,true);
+  eo.setUint32(12,clen,true); eo.setUint32(16,cstart,true);
+  return new Blob([...parts,...cparts,new Uint8Array(eo.buffer)],{type:mime});
+}
+
+/* ---------- export dispatcher ---------- */
+function exportFile(){
+  const fmt=$('fmt').value;
+  const meshFmts=['stlb','stla','obj','ply','3mf','gltf'];
+  let blob, ext;
+  if(meshFmts.includes(fmt)){
+    const m=buildMesh();
+    if(fmt==='stlb'){blob=exportSTLbinary(m);ext='stl';}
+    else if(fmt==='stla'){blob=exportSTLascii(m);ext='stl';}
+    else if(fmt==='obj'){blob=exportOBJ(m);ext='obj';}
+    else if(fmt==='ply'){blob=exportPLY(m);ext='ply';}
+    else if(fmt==='3mf'){blob=export3MF(m);ext='3mf';}
+    else if(fmt==='gltf'){blob=exportGLTF(m);ext='gltf';}
+    $('exportNote').textContent=m.T.length.toLocaleString()+' triangles · watertight surface+base';
+    saveBlob(blob,'relief.'+ext);
+  } else if(fmt==='svg'){ saveBlob(exportSVG(),'toolpath.svg'); $('exportNote').textContent='Top-view vector paths (laser/2D routing).'; }
+  else if(fmt==='dxf'){ saveBlob(exportDXF(),'toolpath.dxf'); $('exportNote').textContent='LWPOLYLINE per pass (CAD/laser import).'; }
+  else if(fmt==='png'){ exportDepthPNG().then(b=>saveBlob(b,'depthmap.png')); $('exportNote').textContent='8-bit depth map (16-bit planned in Phase 1).'; }
+  else { saveBlob(new Blob([$('gcode').value||''],{type:'text/plain'}),'relief.nc');
+         $('exportNote').textContent=($('dialect').value)+' dialect G-code.'; }
+}
+function saveBlob(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+// ---------- rendering ----------
+function drawHeightmap(){
+  const cv=$('hmCanvas'); const ctx=cv.getContext('2d');
+  const c=state.cols,r=state.rows;
+  cv.height = Math.round(cv.width * (r/c));
+  const img=ctx.createImageData(c,r);
+  for(let i=0;i<c*r;i++){
+    const v=Math.round(state.grid[i]*255);
+    img.data[i*4]=v; img.data[i*4+1]=v; img.data[i*4+2]=v; img.data[i*4+3]=255;
+  }
+  // upscale via offscreen
+  const off=document.createElement('canvas'); off.width=c; off.height=r;
+  off.getContext('2d').putImageData(img,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.drawImage(off,0,0,cv.width,cv.height);
+  // scanline marker
+  const sl=+$('slice').value/100;
+  ctx.strokeStyle='#f0a92b'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(0,sl*cv.height); ctx.lineTo(cv.width,sl*cv.height); ctx.stroke();
+}
+
+function drawToolpath(){
+  const tp=state.toolpath; if(!tp) return;
+  const cv=$('tpCanvas'); const ctx=cv.getContext('2d');
+  const matW=+$('matW').value, matH=+$('matH').value;
+  cv.height=Math.round(cv.width*(matH/matW));
+  ctx.fillStyle='#0e1114'; ctx.fillRect(0,0,cv.width,cv.height);
+  const sx=cv.width/matW, sy=cv.height/matH;
+  const minZ=tp.stats.minZ || -1;
+  for(const line of tp.passes){
+    ctx.beginPath();
+    for(let i=0;i<line.length;i++){
+      const p=line[i];
+      const X=p.x*sx, Y=p.y*sy;
+      if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+    }
+    // color by average depth of this pass
+    let avg=0; for(const p of line) avg+=p.z; avg/=line.length;
+    const t = minZ<0 ? (avg/minZ) : 0;   // 0 shallow .. 1 deep
+    const col = mix([56,214,200],[240,169,43], Math.max(0,Math.min(1,t)));
+    ctx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+',0.85)';
+    ctx.lineWidth=1; ctx.stroke();
+  }
+}
+function mix(a,b,t){ return a.map((v,i)=>Math.round(v+(b[i]-v)*t)); }
+
+// The money shot: cross-section proving the tool never gouges.
+function drawCrossSection(){
+  const tp=state.toolpath;
+  const cv=$('csCanvas'); const ctx=cv.getContext('2d');
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='#0e1114'; ctx.fillRect(0,0,cv.width,cv.height);
+  if(!state.grid) return;
+  const matW=+$('matW').value, maxDepth=+$('depth').value;
+  const dia=+$('dia').value, toolRmm=dia/2, isBall=state.tool==='ball';
+  const c=state.cols, r=state.rows;
+  const gy=Math.round((+$('slice').value/100)*(r-1));
+
+  const pad=14, W=cv.width-pad*2, H=cv.height-pad*2;
+  // vertical scale: from +2mm (stock top area) down to -(maxDepth+toolstuff)
+  const zTop=1.5, zBot=-(maxDepth+2);
+  const Zto = z => pad + ( (zTop - z)/(zTop - zBot) ) * H;
+  const Xto = wx => pad + (wx/matW)*W;
+
+  // stock top line
+  ctx.strokeStyle='#2f353d'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(pad,Zto(0)); ctx.lineTo(pad+W,Zto(0)); ctx.stroke();
+  ctx.fillStyle='#6b7280'; ctx.font='10px monospace';
+  ctx.fillText('Z0 (stock top)', pad+2, Zto(0)-3);
+
+  // finished surface profile (filled)
+  ctx.beginPath();
+  ctx.moveTo(Xto(0), Zto(0));
+  for(let gx=0;gx<c;gx++){
+    const wx=(gx/(c-1))*matW;
+    const z=surfZ(gx,gy,maxDepth);
+    ctx.lineTo(Xto(wx), Zto(z));
+  }
+  ctx.lineTo(Xto(matW), Zto(0)); ctx.closePath();
+  ctx.fillStyle='rgba(74,85,104,.55)'; ctx.fill();
+  ctx.strokeStyle='#4a5568'; ctx.lineWidth=1.4; ctx.stroke();
+
+  // tool circles at sample positions + tip path
+  const pxPerMmX=c/matW, toolRpx=toolRmm*pxPerMmX;
+  const nShow=Math.min(22, Math.floor(matW/(dia*0.9)));
+  ctx.strokeStyle='rgba(56,214,200,.55)'; ctx.lineWidth=1;
+  const tips=[];
+  for(let s=0;s<=nShow;s++){
+    const wx=(s/nShow)*matW;
+    const gx=wx*pxPerMmX;
+    const tipZ=dropCutter(gx,gy,toolRpx,toolRmm,maxDepth,isBall);
+    const cx=Xto(wx);
+    if(isBall){
+      const centerZ=tipZ+toolRmm;
+      const rpxV=(toolRmm/(zTop-zBot))*H;
+      const rpxH=(toolRmm/matW)*W;
+      ctx.beginPath(); ctx.ellipse(cx, Zto(centerZ), rpxH, rpxV, 0, 0, Math.PI*2); ctx.stroke();
+      tips.push([cx,Zto(tipZ)]);
+    }else{
+      const rpxH=(toolRmm/matW)*W;
+      ctx.beginPath(); ctx.moveTo(cx-rpxH,Zto(tipZ)); ctx.lineTo(cx+rpxH,Zto(tipZ)); ctx.stroke();
+      tips.push([cx,Zto(tipZ)]);
+    }
+  }
+  // tip path
+  ctx.beginPath();
+  tips.forEach((p,i)=> i? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]));
+  ctx.strokeStyle='#f0a92b'; ctx.lineWidth=1.6; ctx.stroke();
+}
+
+// ---------- UI wiring ----------
+function refreshOutputs(){
+  const gc=buildGCode();
+  $('gcode').value=gc;
+  $('hash').textContent = gc?fnv1a(gc):'—';
+  const tp=state.toolpath; if(!tp) return;
+  const s=tp.stats;
+  $('stats').innerHTML =
+    stat('Passes',s.nPasses)+
+    stat('Path points',s.npts.toLocaleString())+
+    stat('Cut length', s.pathLenMm.toFixed(0)+' mm')+
+    stat('Deepest Z', s.minZ.toFixed(2)+' mm')+
+    stat('Est. cut time', s.estMin.toFixed(1)+' min')+
+    stat('Compute', s.computeMs.toFixed(0)+' ms');
+  const ok = s.computeMs<1500;
+  $('verdict').innerHTML = '<b>Exit-criteria check:</b> valid G-code produced in-browser ('+
+    s.npts.toLocaleString()+' points), determinism hash shown below, compute '+
+    s.computeMs.toFixed(0)+' ms — '+
+    (ok?'<b>fast enough for JS</b> at this resolution.'
+       :'consider Rust→WASM for higher resolution (expected in Phase 2).');
+  $('timing').textContent='Last run: '+s.computeMs.toFixed(0)+' ms · '+s.nPasses+' passes';
+}
+const stat=(k,v)=>'<div class="stat"><div class="k mono">'+k+'</div><div class="v mono">'+v+'</div></div>';
+
+function run(){
+  if(!state.imgData){ loadSample(); }
+  generateToolpath();
+  drawHeightmap(); drawToolpath(); drawCrossSection();
+  refreshOutputs();
+}
+
+function setImageFromCanvas(cnv){
+  const ctx=cnv.getContext('2d');
+  state.imgData=ctx.getImageData(0,0,cnv.width,cnv.height);
+}
+
+// deterministic synthetic heightmap so the tool works with zero upload
+function loadSample(){
+  const n=256, cnv=document.createElement('canvas'); cnv.width=n; cnv.height=n;
+  const ctx=cnv.getContext('2d'); const img=ctx.createImageData(n,n);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const cx=x/n-0.5, cy=y/n-0.5;
+    const d=Math.sqrt(cx*cx+cy*cy);
+    // dome + two ridges — nice for showing ball-nose following curves
+    let v=Math.max(0,1-d*2.0);
+    v=Math.pow(v,0.8);
+    v+=0.18*Math.max(0,Math.sin((x/n)*Math.PI*6))*Math.max(0,1-d*2.2);
+    v=Math.min(1,v);
+    const g=Math.round(v*255);
+    const i=(y*n+x)*4; img.data[i]=g;img.data[i+1]=g;img.data[i+2]=g;img.data[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  setImageFromCanvas(cnv);
+}
+
+// file upload
+$('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const img=new Image();
+  img.onload=()=>{
+    const max=600, sc=Math.min(1,max/Math.max(img.width,img.height));
+    const w=Math.round(img.width*sc), h=Math.round(img.height*sc);
+    const cnv=document.createElement('canvas'); cnv.width=w; cnv.height=h;
+    cnv.getContext('2d').drawImage(img,0,0,w,h);
+    setImageFromCanvas(cnv);
+    run();
+  };
+  img.src=URL.createObjectURL(f);
+});
+$('sampleBtn').onclick=()=>{ loadSample(); run(); };
+
+// segmented controls
+$('invSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...$('invSeg').children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  state.invert=+b.dataset.v; $('invV').textContent=state.invert?'on':'off';
+});
+$('toolSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...$('toolSeg').children].forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  state.tool=b.dataset.v; $('toolV').textContent=b.dataset.v==='ball'?'Ball-nose':'Flat';
+});
+
+// live range labels
+const bind=(id,label,fn)=>{ const el=$(id); const out=$(label);
+  el.addEventListener('input',()=>{ out.textContent=fn?fn(el.value):el.value; }); };
+bind('blur','blurV'); bind('depth','depthV'); bind('dia','diaV');
+bind('step','stepV'); bind('res','resV');
+$('slice').addEventListener('input',()=>{ $('sliceV').textContent=$('slice').value;
+  if(state.toolpath){ drawHeightmap(); drawCrossSection(); }});
+
+$('run').onclick=run;
+$('dl').onclick=()=>{
+  if(!state.toolpath){ run(); }
+  exportFile();
+};
+// show G-code dialect only when exporting G-code
+function syncFmtUI(){
+  $('dialectField').style.display = $('fmt').value==='gcode' ? '' : 'none';
+}
+$('fmt').addEventListener('change',syncFmtUI);
+$('dialect').addEventListener('change',()=>{ if(state.toolpath) $('gcode').value=buildGCode(),$('hash').textContent=fnv1a($('gcode').value); });
+syncFmtUI();
+
+// first paint
+loadSample(); run();
+</script>
+</body>
+</html>

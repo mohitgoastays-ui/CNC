@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relief Studio — Phase 3</title>
+<style>
+  :root{
+    --bg:#15181c; --panel:#1c2025; --panel-2:#232830; --panel-3:#2a3038; --line:#2f353d;
+    --ink:#e6e9ec; --ink-dim:#9aa3ad; --ink-faint:#6b7580;
+    --amber:#f0a92b; --cyan:#38d6c8; --violet:#8b7cf0; --danger:#ff6b57; --good:#6dd36d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.5;overflow:hidden}
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+  /* ---- top bar ---- */
+  header{height:52px;padding:0 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;background:var(--panel)}
+  .logo{font-size:15px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .logo .mk{width:20px;height:20px;border-radius:5px;background:linear-gradient(135deg,var(--amber),var(--violet))}
+  /* step rail */
+  .steps{display:flex;gap:3px;margin-left:16px}
+  .step{display:flex;align-items:center;gap:7px;padding:6px 13px;border-radius:7px;font-size:12.5px;color:var(--ink-faint);cursor:pointer;background:transparent;border:1px solid transparent;transition:.12s}
+  .step:hover{color:var(--ink-dim)}
+  .step.on{background:var(--panel-3);color:var(--ink);border-color:var(--line)}
+  .step .n{width:18px;height:18px;border-radius:50%;background:var(--panel-3);display:grid;place-items:center;font-size:10.5px;font-weight:600;color:var(--ink-dim)}
+  .step.on .n{background:var(--amber);color:#1a1a1a}
+  .step.done .n{background:var(--good);color:#12200f}
+  .topright{margin-left:auto;display:flex;gap:8px;align-items:center}
+
+  /* ---- layout ---- */
+  .wrap{display:grid;grid-template-columns:296px 1fr 300px;height:calc(100vh - 52px)}
+  .col{overflow-y:auto;overflow-x:hidden}
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:16px}
+  .stage{background:var(--bg);padding:16px;display:flex;flex-direction:column;gap:12px}
+  .out{background:var(--panel);border-left:1px solid var(--line);padding:16px}
+
+  h2{font-size:10.5px;font-weight:600;letter-spacing:.09em;color:var(--ink-faint);margin:0 0 11px;text-transform:uppercase}
+  h2:not(:first-child){margin-top:20px}
+  .field{margin-bottom:12px}
+  .field label{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12px;color:var(--ink-dim)}
+  .field label b{color:var(--ink);font-weight:500}
+  input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer;height:18px}
+  input[type=number],select,input[type=text]{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:7px 9px;font-size:12.5px}
+  input:focus,select:focus{outline:2px solid var(--amber);outline-offset:-1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel-2);border:0;color:var(--ink-dim);padding:6px;font-size:11.5px;cursor:pointer}
+  .seg button.on{background:var(--amber);color:#1a1a1a;font-weight:600}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:8px 11px;font-size:12.5px;cursor:pointer;text-align:center;white-space:nowrap}
+  .btn:hover{border-color:var(--amber)}
+  .btn.primary{background:var(--amber);color:#1a1a1a;border-color:var(--amber);font-weight:600}
+  .btn.sm{padding:5px 9px;font-size:11.5px}
+  .btn.full{width:100%}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  .panel-group{display:none} .panel-group.on{display:block}
+
+  /* viewport */
+  .viewport{position:relative;flex:1;min-height:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0e1114}
+  .viewport canvas{position:absolute;inset:0;width:100%;height:100%;display:block;border:0;border-radius:0}
+  #glCanvas{cursor:grab} #glCanvas:active{cursor:grabbing}
+  .vp-tabs{position:absolute;top:10px;left:10px;display:flex;gap:2px;background:rgba(21,24,28,.85);backdrop-filter:blur(6px);padding:3px;border-radius:7px;border:1px solid var(--line);z-index:5}
+  .vp-tabs button{background:transparent;border:0;color:var(--ink-dim);padding:5px 11px;font-size:11.5px;border-radius:5px;cursor:pointer}
+  .vp-tabs button.on{background:var(--panel-3);color:var(--ink)}
+  .vp-hint{position:absolute;bottom:10px;left:10px;font-size:10.5px;color:var(--ink-faint);background:rgba(21,24,28,.8);padding:4px 9px;border-radius:5px;z-index:5}
+  .vp-legend{position:absolute;bottom:10px;right:10px;display:flex;gap:12px;font-size:10.5px;color:var(--ink-dim);background:rgba(21,24,28,.85);padding:5px 10px;border-radius:5px;z-index:5}
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+  .stat .k{font-size:9.5px;color:var(--ink-faint);letter-spacing:.04em;text-transform:uppercase}
+  .stat .v{font-size:14px;margin-top:2px}
+  .banner{border:1px solid var(--line);border-left:3px solid var(--good);background:var(--panel-2);border-radius:6px;padding:10px 12px;margin:12px 0;font-size:11.5px;line-height:1.5}
+  .banner.warn{border-left-color:var(--amber)} .banner.bad{border-left-color:var(--danger)}
+  .banner b{color:var(--good)} .banner.warn b{color:var(--amber)} .banner.bad b{color:var(--danger)}
+  .note{font-size:10.5px;color:var(--ink-faint);margin-top:5px;line-height:1.5}
+  .warn-txt{color:var(--danger)}
+  textarea{width:100%;height:150px;background:#0e1114;border:1px solid var(--line);color:var(--cyan);border-radius:7px;padding:10px;font-size:11px;resize:vertical;font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+  .hash{font-size:10.5px;color:var(--ink-faint);margin:8px 0;word-break:break-all}
+  .hash b{color:var(--ink-dim)}
+  details summary{cursor:pointer;color:var(--ink-faint);font-size:11.5px;padding:4px 0}
+  details[open] summary{color:var(--ink-dim)}
+  .toggle{position:relative;width:34px;height:18px;background:var(--line);border-radius:20px;cursor:pointer;transition:.15s;flex-shrink:0}
+  .toggle.on{background:var(--amber)}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:.15s}
+  .toggle.on::after{left:18px}
+  .ophead{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+  .ophead .nm{font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:2px}
+  .drop{border:1.5px dashed var(--line);border-radius:9px;padding:18px 12px;text-align:center;cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--amber);background:var(--panel-2)}
+  .drop .big{font-size:12.5px;color:var(--ink)} .drop .sm{font-size:10.5px;color:var(--ink-faint);margin-top:3px}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:var(--panel-3);border-radius:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  @media(max-width:1200px){.wrap{grid-template-columns:260px 1fr 260px}}
+  @media(max-width:960px){.wrap{grid-template-columns:1fr;height:auto}
+    html,body{overflow:auto}
+    .stage{min-height:420px}
+    .steps{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .topright{margin-left:12px}
+    header{flex-wrap:wrap;height:auto;padding:10px 16px;gap:8px}}
+  @media(max-width:600px){
+    .steps{gap:1px}
+    .step{padding:5px 8px;font-size:11px}
+    .step span:not(.n){display:none}
+    .row2,.row3{grid-template-columns:1fr}
+    .topright .btn{font-size:10px;padding:4px 7px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="mk"></span>Relief Studio</div>
+  <div class="steps" id="steps">
+    <div class="step on" data-s="0"><span class="n">1</span>Image</div>
+    <div class="step" data-s="1"><span class="n">2</span>Depth</div>
+    <div class="step" data-s="2"><span class="n">3</span>Stock</div>
+    <div class="step" data-s="3"><span class="n">4</span>Toolpaths</div>
+    <div class="step" data-s="4"><span class="n">5</span>Export</div>
+  </div>
+  <div class="topright">
+    <button class="btn sm" id="saveProj">Save project</button>
+    <label class="btn sm" style="margin:0">Load<input id="loadProj" type="file" accept=".json" style="display:none"></label>
+  </div>
+</header>
+
+<div class="wrap">
+  <!-- ================= LEFT: step panels ================= -->
+  <div class="col side">
+
+    <!-- STEP 1 -->
+    <div class="panel-group on" data-p="0">
+      <h2>Source image</h2>
+      <div class="drop" id="drop">
+        <div class="big">Drop an image here</div>
+        <div class="sm">or click to browse · JPG / PNG / WEBP</div>
+        <input id="file" type="file" accept="image/*" style="display:none">
+      </div>
+      <div class="note" id="imgInfo">No image loaded — using built-in sample.</div>
+      <button class="btn full" id="sampleBtn" style="margin-top:10px">Load sample relief</button>
+      <div class="banner" style="border-left-color:var(--cyan)">
+        <b style="color:var(--cyan)">Nothing is uploaded.</b> Your image is read locally and every computation below runs in this browser — no server, works offline.
+      </div>
+      <button class="btn primary full" data-next="1">Next: Depth →</button>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="panel-group" data-p="1">
+      <h2>Depth mapping</h2>
+      <div class="row2">
+        <div class="field"><label>Invert <b id="invV">off</b></label>
+          <div class="seg" id="invSeg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+        <div class="field"><label>Mirror <b id="mirV">off</b></label>
+          <div class="seg" id="mirSeg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+      </div>
+      <div class="field"><label>Brightness <b><span id="briV">0</span></b></label><input id="bri" type="range" min="-100" max="100" step="5" value="0"></div>
+      <div class="field"><label>Contrast <b><span id="conV">0</span></b></label><input id="con" type="range" min="-90" max="90" step="5" value="0"></div>
+      <div class="field"><label>Gamma <b><span id="gamV">1.0</span></b></label><input id="gam" type="range" min="0.3" max="3" step="0.1" value="1"></div>
+      <div class="row2">
+        <div class="field"><label>Black pt <b><span id="blkV">0</span></b></label><input id="blk" type="range" min="0" max="90" step="5" value="0"></div>
+        <div class="field"><label>White pt <b><span id="whtV">100</span></b></label><input id="wht" type="range" min="10" max="100" step="5" value="100"></div>
+      </div>
+      <div class="field"><label>Smoothing <b><span id="blurV">1</span> px</b></label><input id="blur" type="range" min="0" max="5" step="1" value="1">
+        <div class="note">Reduces spikes from contrasting pixels — spiky heightfields machine badly.</div></div>
+      <button class="btn full" id="resetDepth" style="margin-bottom:8px">Reset to defaults</button>
+      <button class="btn primary full" data-next="2">Next: Stock →</button>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="panel-group" data-p="2">
+      <h2>Stock material</h2>
+      <div class="row3">
+        <div class="field"><label>W <b>mm</b></label><input id="matW" type="number" value="120" min="10"></div>
+        <div class="field"><label>H <b>mm</b></label><input id="matH" type="number" value="120" min="10"></div>
+        <div class="field"><label>Thick <b>mm</b></label><input id="matT" type="number" value="18" min="1"></div>
+      </div>
+      <div class="field"><label>Relief depth <b><span id="depthV">6</span> mm</b></label>
+        <input id="depth" type="range" min="0.5" max="25" step="0.5" value="6">
+        <div class="note" id="depthWarn"></div></div>
+      <div class="field"><label>Base thickness <b>mm</b></label><input id="base" type="number" value="3" min="0" step="0.5">
+        <div class="note">Solid material kept under the deepest cut — mesh export only.</div></div>
+      <h2>Compute</h2>
+      <div class="field"><label>Grid resolution <b><span id="resV">160</span> px</b></label><input id="res" type="range" min="60" max="340" step="20" value="160">
+        <div class="note">Higher = finer detail, slower. Browser-bound; server escalation is a later phase.</div></div>
+      <button class="btn primary full" data-next="3">Next: Toolpaths →</button>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="panel-group" data-p="3">
+      <h2>Op 1 — Roughing</h2>
+      <div class="ophead"><div class="nm"><span class="dot" style="background:var(--violet)"></span>Flat end mill</div><div class="toggle on" id="roughTog"></div></div>
+      <div class="row2">
+        <div class="field"><label>Ø <b>mm</b></label><input id="rDia" type="number" value="6" min="0.5" step="0.5"></div>
+        <div class="field"><label>Stepdown <b>mm</b></label><input id="rStepdown" type="number" value="2" min="0.2" step="0.2"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Stepover <b><span id="rStepV">45</span>%</b></label><input id="rStep" type="range" min="20" max="90" step="5" value="45"></div>
+        <div class="field"><label>Allowance <b>mm</b></label><input id="rAllow" type="number" value="0.4" min="0" step="0.1"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Feed <b>mm/min</b></label><input id="rFeed" type="number" value="1800" min="1"></div>
+        <div class="field"><label>RPM</label><input id="rRpm" type="number" value="16000" min="1"></div>
+      </div>
+
+      <h2>Op 2 — Finishing</h2>
+      <div class="ophead"><div class="nm"><span class="dot" style="background:var(--amber)"></span><span id="fToolName">Ball-nose</span></div><div class="toggle on" id="finTog"></div></div>
+      <div class="field"><div class="seg" id="fToolSeg"><button data-v="ball" class="on">Ball</button><button data-v="vbit">V-bit</button><button data-v="flat">Flat</button></div></div>
+      <div class="row2">
+        <div class="field"><label>Ø <b>mm</b></label><input id="fDia" type="number" value="3" min="0.3" step="0.5"></div>
+        <div class="field" id="vAngleField" style="display:none"><label>V angle <b>°</b></label><input id="vAngle" type="number" value="90" min="10" max="170" step="5"></div>
+      </div>
+      <div class="field"><label>Stepover <b><span id="fStepV">12</span>% · scallop <span id="scallopV">–</span></b></label><input id="fStep" type="range" min="4" max="60" step="2" value="12"></div>
+      <div class="field"><label>Direction</label><div class="seg" id="dirSeg"><button data-v="x" class="on">Raster X</button><button data-v="y">Raster Y</button></div></div>
+      <div class="row2">
+        <div class="field"><label>Feed <b>mm/min</b></label><input id="fFeed" type="number" value="1000" min="1"></div>
+        <div class="field"><label>RPM</label><input id="fRpm" type="number" value="18000" min="1"></div>
+      </div>
+
+      <h2>Machine</h2>
+      <div class="row2">
+        <div class="field"><label>Safe Z <b>mm</b></label><input id="safe" type="number" value="5" step="0.5" min="0.5"></div>
+        <div class="field"><label>Plunge <b>mm/min</b></label><input id="plunge" type="number" value="400" min="1"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Ramp angle <b>deg</b></label><input id="ramp" type="number" value="15" step="1" min="0" max="90"></div>
+        <div class="field"><label>Rapid <b>mm/min</b></label><input id="rapid" type="number" value="5000" min="1"></div>
+      </div>
+      <div class="note">Ramp angle 0 = straight plunge. 15° is a safe default for wood; lower it for hard stock.</div>
+      <button class="btn primary full" id="genBtn">Generate toolpaths</button>
+      <div class="note" id="timing" style="margin-top:7px"></div>
+      <button class="btn full" data-next="4" style="margin-top:8px">Next: Export →</button>
+    </div>
+
+    <!-- STEP 5 -->
+    <div class="panel-group" data-p="4">
+      <h2>Export</h2>
+      <div class="field"><label>Format</label>
+        <select id="fmt">
+          <optgroup label="Machine">
+            <option value="gcode">G-code / NC (.nc)</option>
+          </optgroup>
+          <optgroup label="Mesh — 3D">
+            <option value="stlb">STL — binary (.stl)</option>
+            <option value="stla">STL — ASCII (.stl)</option>
+            <option value="obj">OBJ (.obj)</option>
+            <option value="ply">PLY (.ply)</option>
+            <option value="3mf">3MF (.3mf)</option>
+            <option value="gltf">glTF (.gltf)</option>
+          </optgroup>
+          <optgroup label="Vector / 2D">
+            <option value="svg">SVG toolpath (.svg)</option>
+            <option value="dxf">DXF toolpath (.dxf)</option>
+            <option value="png">Depth map (.png)</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field" id="dialectField"><label>G-code dialect</label>
+        <select id="dialect"><option value="grbl">GRBL</option><option value="mach3">Mach3</option><option value="linuxcnc">LinuxCNC</option></select></div>
+      <button class="btn primary full" id="dl">Export file</button>
+      <div class="note" id="exportNote"></div>
+      <details style="margin-top:14px"><summary>Which formats are in scope — and why</summary>
+        <div class="note" style="line-height:1.6;margin-top:8px">
+          <p style="margin:0 0 7px"><b style="color:var(--cyan)">In scope:</b> STL · OBJ · PLY · 3MF · glTF · SVG · DXF · depth PNG · G-code. All derive directly from the depth surface, so they stay dimensionally honest.</p>
+          <p style="margin:0"><b style="color:var(--danger)">Out of scope by design:</b> STEP · IGES · SAT · Parasolid are parametric B-rep solids; SLDPRT · IPT · CATPart · F3D · DWG · FBX are vendor-proprietary. A relief heightmap has no feature tree — emitting these would produce meaningless files.</p>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ================= CENTER: viewport ================= -->
+  <div class="stage">
+    <div class="viewport">
+      <div class="vp-tabs" id="vpTabs">
+        <button data-v="3d" class="on">3D</button>
+        <button data-v="path">Toolpaths</button>
+        <button data-v="height">Heightfield</button>
+        <button data-v="section">Section</button>
+      </div>
+      <canvas id="glCanvas"></canvas>
+      <canvas id="c2d" style="display:none"></canvas>
+      <div class="vp-hint" id="vpHint">Drag to orbit · scroll to zoom</div>
+      <div class="vp-legend" id="vpLegend" style="display:none">
+        <span><span class="swatch" style="background:var(--violet)"></span>roughing</span>
+        <span><span class="swatch" style="background:var(--amber)"></span>finishing</span>
+      </div>
+    </div>
+    <div class="field" id="exagWrap" style="margin:0"><label>Preview height exaggeration <b><span id="exagV">1.0</span>×</b></label><input id="exag" type="range" min="0.3" max="3" step="0.1" value="1"></div>
+  </div>
+
+  <!-- ================= RIGHT: results ================= -->
+  <div class="col out">
+    <h2>Job summary</h2>
+    <div class="stats" id="stats"></div>
+    <div class="banner" id="banner">Generate toolpaths to see the job summary.</div>
+    <div class="hash mono">Determinism: <b id="hash">—</b></div>
+    <h2>G-code preview</h2>
+    <textarea id="gcode" class="mono" readonly placeholder="Generate toolpaths first"></textarea>
+    <div class="note">Same inputs always produce identical output — verify by matching the hash across runs.</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   RELIEF STUDIO — Phase 3
+   Merges Phase 1 (heightmap + mesh + WebGL) and Phase 2 (CAM) into one app.
+   Zero dependencies. All audit fixes applied:
+     A1 NaN/Infinity guards before emitting G-code numbers
+     A2 nRows/denominator guards (no divide-by-zero when stepover > span)
+     A3 empty-toolpath handled gracefully (flat image => valid empty program)
+     A4 numeric input clamping (negative/zero dims can't crash the pipeline)
+   ========================================================================= */
+const $=id=>document.getElementById(id);
+/* @core-start — everything between these markers is pure computation with no
+   DOM access beyond the $() value reads, and tests/test_browser_algorithms.mjs
+   extracts exactly this region and runs it in Node. Keep DOM wiring outside. */
+const S={img:null,grid:null,cols:0,rows:0,invert:0,mirror:0,fTool:'ball',dir:'x',
+  rough:true,fin:true,mesh:null,ops:null,view:'3d',step:0};
+
+/* ---------- safe numeric helpers (audit fix A4) ---------- */
+function num(id,def,min,max){let v=parseFloat($(id).value);
+  if(!isFinite(v))v=def; if(min!=null&&v<min)v=min; if(max!=null&&v>max)v=max; return v;}
+const G={ matW:()=>num('matW',120,1,5000), matH:()=>num('matH',120,1,5000), matT:()=>num('matT',18,0.1,1000),
+  depth:()=>num('depth',6,0.1,1000), base:()=>num('base',3,0,1000), res:()=>num('res',160,20,600),
+  safe:()=>num('safe',5,0.1,500), plunge:()=>num('plunge',400,1,50000),
+  ramp:()=>num('ramp',15,0,90), rapid:()=>num('rapid',5000,1,100000),
+  rDia:()=>num('rDia',6,0.1,100), rStepdown:()=>num('rStepdown',2,0.05,100),
+  rStep:()=>num('rStep',45,5,95)/100, rAllow:()=>num('rAllow',0.4,0,50),
+  rFeed:()=>num('rFeed',1800,1,50000), rRpm:()=>num('rRpm',16000,1,100000),
+  fDia:()=>num('fDia',3,0.1,100), fStep:()=>num('fStep',12,1,95)/100,
+  vAngle:()=>num('vAngle',90,5,179), fFeed:()=>num('fFeed',1000,1,50000), fRpm:()=>num('fRpm',18000,1,100000) };
+
+/* ---------- heightfield ---------- */
+const lum=(r,g,b)=>(0.299*r+0.587*g+0.114*b)/255;
+function boxBlur(src,c,r,rad){if(rad<=0)return src;const out=new Float32Array(src.length);
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++){let s=0,n=0;
+    for(let dy=-rad;dy<=rad;dy++){const yy=y+dy;if(yy<0||yy>=r)continue;
+      for(let dx=-rad;dx<=rad;dx++){const xx=x+dx;if(xx<0||xx>=c)continue;s+=src[yy*c+xx];n++;}}
+    out[y*c+x]=n?s/n:src[y*c+x];}return out;}
+function buildGrid(){
+  if(!S.img)return;
+  const res=Math.round(G.res()),matW=G.matW(),matH=G.matH();
+  const cols=res,rows=Math.max(20,Math.round(res*(matH/matW)));
+  const grid=new Float32Array(cols*rows);
+  const {data,width,height}=S.img;
+  const bri=num('bri',0,-100,100)/100, con=num('con',0,-90,90)/100, gam=num('gam',1,0.1,5);
+  const blk=num('blk',0,0,95)/100, wht=num('wht',100,5,100)/100;
+  const cf=(1+con)/Math.max(1e-6,1-con);
+  /* B6 FIX: point-sampled nearest-neighbour threw away almost every source
+     pixel (a 900px photo -> 160px grid read 1 pixel in 31), so fine detail
+     turned into aliasing noise that the drop-cutter then faithfully carved.
+     Box-average the source rect that maps to each cell instead. Averaging
+     happens on luminance BEFORE the tone curve, which is the resampling order
+     the design docs specify. */
+  for(let y=0;y<rows;y++){
+    /* B11 FIX: image rows run top->down, but world/CNC Y runs bottom->up (grid
+       row 0 sits at world Y=0, the near edge of the stock). Mapping image row 0
+       straight to grid row 0 put the top of the picture at the bottom of the
+       part, so every relief came out vertically mirrored — in the 3D preview,
+       in the mesh exports and in the carved G-code. Read the source bottom-up. */
+    const oy=rows-1-y;
+    const ay0=Math.floor(oy*height/rows), ay1=Math.max(ay0+1,Math.floor((oy+1)*height/rows));
+    for(let x=0;x<cols;x++){
+      const ox=S.mirror?(cols-1-x):x;
+      const ax0=Math.floor(ox*width/cols), ax1=Math.max(ax0+1,Math.floor((ox+1)*width/cols));
+      let acc=0,cnt=0;
+      for(let sy=ay0;sy<ay1&&sy<height;sy++){const ro=sy*width;
+        for(let sx=ax0;sx<ax1&&sx<width;sx++){const i=(ro+sx)*4;
+          acc+=lum(data[i],data[i+1],data[i+2]);cnt++;}}
+      let L=cnt?acc/cnt:0;
+      if(S.invert)L=1-L;
+      L=L+bri; L=(L-0.5)*cf+0.5; L=Math.min(1,Math.max(0,L)); L=Math.pow(L,1/gam);
+      if(wht>blk)L=(L-blk)/(wht-blk);
+      L=Math.min(1,Math.max(0,L)); if(!isFinite(L))L=0;
+      grid[y*cols+x]=L;}}
+  S.grid=boxBlur(grid,cols,rows,Math.round(num('blur',1,0,5))); S.cols=cols; S.rows=rows;
+}
+/* Grid <-> world mapping. ONE convention everywhere: grid node (gx,gy) sits at
+   world ((gx/(c-1))*matW, (gy/(r-1))*matH). The server worker uses the same
+   mapping, so browser and server produce identical paths. */
+function pxPerMmX(){ return (S.cols-1)/Math.max(1e-9,G.matW()); }
+function pxPerMmY(){ return (S.rows-1)/Math.max(1e-9,G.matH()); }
+
+/* B1 FIX: gx/gy arrive as floats from world-space callers. A fractional index
+   into a Float32Array returns undefined -> NaN, which silently killed every
+   comparison downstream. Round to the nearest node and clamp. */
+function surfZ(gx,gy,md){const c=S.cols,r=S.rows;
+  let ix=Math.round(gx),iy=Math.round(gy);
+  ix=ix<0?0:(ix>=c?c-1:ix); iy=iy<0?0:(iy>=r?r-1:iy);
+  const v=S.grid[iy*c+ix];
+  return isFinite(v)?-(1-v)*md:0;}
+
+/* ---- disc dilation (max grid value under a cutter of radius Rpx) ----
+   Used by roughing so a level is only cut where the WHOLE cutter clears the
+   finished surface. Sliding-window max per row => O(rows*cols*(2R+1)) instead
+   of O(rows*cols*R^2), which keeps 600px grids interactive. */
+function rowWindowMaxG(g,c,rowOff,span,out,dq){
+  let head=0,tail=0,next=0;
+  for(let x=0;x<c;x++){
+    const hi=x+span<c-1?x+span:c-1;
+    while(next<=hi){const v=g[rowOff+next];
+      while(tail>head&&g[rowOff+dq[tail-1]]<=v)tail--;
+      dq[tail++]=next;next++;}
+    const lo=x-span;
+    while(head<tail&&dq[head]<lo)head++;
+    out[x]=g[rowOff+dq[head]];
+  }
+}
+function dilateMaxG(Rpx){
+  const c=S.cols,r=S.rows,g=S.grid,out=new Float32Array(c*r);
+  const R=Math.max(0,Rpx),Ri=Math.floor(R+1e-9),R2=R*R;
+  const tmp=new Float32Array(c),dq=new Int32Array(c);
+  out.fill(-Infinity);
+  for(let dy=-Ri;dy<=Ri;dy++){
+    const span=Math.floor(Math.sqrt(Math.max(0,R2-dy*dy)));
+    for(let y=0;y<r;y++){
+      const yy=y+dy; if(yy<0||yy>=r)continue;
+      rowWindowMaxG(g,c,yy*c,span,tmp,dq);
+      const o=y*c;
+      for(let x=0;x<c;x++)if(tmp[x]>out[o+x])out[o+x]=tmp[x];
+    }
+  }
+  for(let i=0;i<c*r;i++)if(!isFinite(out[i]))out[i]=g[i];
+  return out;
+}
+
+/* ---------- drop-cutter (audited: ball/flat/vbit, 0 gouges) ---------- */
+/* B3 FIX: seed with the centre sample. Previously `best` stayed -Infinity when
+   no grid node landed inside the footprint (any tool smaller than ~one grid
+   cell), and the fallback called surfZ with FLOAT args -> NaN -> clamped to
+   Z=0, so ~65% of a fine-tool path silently rode the stock surface and cut
+   nothing. Seeding guarantees a finite result and at least nearest-node
+   accuracy, which is the correct answer for a sub-pixel cutter. */
+/* B10 FIX: the footprint scan is O(Rpx^2) PER PATH POINT. Small stock or high
+   detail makes Rpx large - a 1mm stock with a Ø3mm tool gives Rpx=238, i.e.
+   227k samples per point - and the tab hangs for minutes with no feedback.
+   When the footprint is huge, step the scan and read from a max-pooled grid
+   instead. Max-pooling only ever raises the sampled surface, so the tool is
+   lifted, never dropped: coarse sampling stays gouge-free by construction. */
+const MAX_FOOTPRINT_PX=48;
+let CUT_POOL=null, CUT_STRIDE=1;
+function setCutPool(Rpx){
+  CUT_STRIDE=Math.max(1,Math.ceil(Rpx/MAX_FOOTPRINT_PX));
+  CUT_POOL=CUT_STRIDE>1?dilateMaxG(CUT_STRIDE/2):null;
+}
+function poolZ(gx,gy,md){
+  if(!CUT_POOL)return surfZ(gx,gy,md);
+  const c=S.cols,r=S.rows;
+  let ix=Math.round(gx),iy=Math.round(gy);
+  ix=ix<0?0:(ix>=c?c-1:ix); iy=iy<0?0:(iy>=r?r-1:iy);
+  const v=CUT_POOL[iy*c+ix];
+  return isFinite(v)?-(1-v)*md:0;
+}
+function dropCutter(cx,cy,Rpx,Rmm,md,type,tanHalf){
+  const zc=surfZ(cx,cy,md);
+  let best=(type==='ball')?zc+Rmm:zc;
+  const R2=Rpx*Rpx, st=CUT_STRIDE;
+  const x0=Math.floor(cx-Rpx),x1=Math.ceil(cx+Rpx),y0=Math.floor(cy-Rpx),y1=Math.ceil(cy+Rpx);
+  const mpp=1/Math.max(1e-9,pxPerMmX());             // true grid scale, not Rmm/Rpx
+  for(let gy=y0;gy<=y1;gy+=st)for(let gx=x0;gx<=x1;gx+=st){
+    const dx=gx-cx,dy=gy-cy,d2=dx*dx+dy*dy; if(d2>R2)continue;
+    const zs=poolZ(gx,gy,md), dmm=Math.sqrt(d2)*mpp; let cand;
+    if(type==='ball')cand=zs+Math.sqrt(Math.max(0,Rmm*Rmm-dmm*dmm));
+    else if(type==='vbit')cand=zs-dmm/Math.max(1e-6,tanHalf);
+    else cand=zs;
+    if(cand>best)best=cand;}
+  const tip=(type==='ball')?best-Rmm:best;
+  return isFinite(tip)?tip:0;
+}
+
+/* ---------- CAM ops ---------- */
+/* B2 FIX: roughing is now tool-radius aware. The old version tested the tool
+   CENTRE against the Z-level, so a Ø6mm cutter would happily drive through any
+   wall that rose within 3mm of the centreline. A Z-level pass may only cut
+   where the entire cutter disc clears the finished surface, so we test against
+   the disc-dilated height map. `allow` is applied both vertically (level test)
+   and laterally (the dilation radius is grown by the allowance). */
+function genRoughing(){
+  const matW=G.matW(),matH=G.matH(),md=G.depth();
+  const dia=G.rDia(),stepdown=G.rStepdown(),allow=G.rAllow(),stepPct=G.rStep();
+  const c=S.cols,r=S.rows,pxX=pxPerMmX(),pxY=pxPerMmY();
+  const Rpx=(dia/2+allow)*pxX;                       // radial stock allowance
+  setCutPool(0);                      // roughing dilates directly; clear any pooled state
+  const dil=dilateMaxG(Rpx);
+  const stepMm=Math.max(0.2,dia*stepPct);
+  const nRows=Math.max(2,Math.min(4000,Math.round(matH/stepMm)+1));   // A2 guard
+  let minDil=1; for(let i=0;i<c*r;i++) if(dil[i]<minDil)minDil=dil[i];
+  const floor=Math.max(-md,-(1-minDil)*md+allow);
+  /* B9 FIX (roughing half): a 0.05mm stepdown over 6mm is 120+ levels, each a
+     full raster - well over a million points, which locks the tab and emits a
+     file no controller will load. Grow the stepdown just enough to fit the
+     budget; the floor is still reached, so the part is unchanged in depth. */
+  const MAX_PTS=600000;
+  const maxLevels=Math.max(1,Math.floor(MAX_PTS/Math.max(1,nRows*c)));
+  let sd=stepdown, limited=false;
+  if(Math.ceil((-floor)/sd)>maxLevels){sd=(-floor)/maxLevels;limited=true;}
+  const levels=[]; for(let z=-sd;z>floor+1e-6&&levels.length<200;z-=sd)levels.push(z);
+  if(levels.length===0||levels[levels.length-1]-floor>1e-6)levels.push(floor);
+  const raw=[];
+  for(const L of levels){
+    if(L>=-1e-9)continue;                                            // no cutting at/above Z0
+    for(let p=0;p<nRows;p++){
+      const wy=(p/(nRows-1))*matH; let gy=Math.round(wy*pxY);
+      gy=gy<0?0:(gy>=r?r-1:gy);
+      let seg=null;
+      for(let s=0;s<c;s++){
+        const sx=(p%2===0)?s:(c-1-s), wx=(sx/(c-1))*matW;
+        const zmax=-(1-dil[gy*c+sx])*md;             // highest surface under the cutter
+        if(zmax<=(L-allow)+1e-9){
+          if(!seg){seg=[];raw.push({z:L,pts:seg});}
+          seg.push({x:wx,y:wy});
+        } else seg=null;
+      }
+    }
+  }
+  /* A single-point "segment" is a bare plunge with no cutting move - it is
+     never useful and on a real machine it is a broken cutter. Drop them. */
+  const passes=raw.filter(p=>p.pts.length>=2);
+  let cut=0,npts=0;
+  for(const p of passes){npts+=p.pts.length;
+    for(let i=1;i<p.pts.length;i++)cut+=Math.hypot(p.pts[i].x-p.pts[i-1].x,p.pts[i].y-p.pts[i-1].y);}
+  return {passes,npts,cut,levels:levels.length,feed:G.rFeed(),rpm:G.rRpm(),dia,
+          stepdown:sd,reqStepdown:stepdown,limited};
+}
+function genFinishing(){
+  const matW=G.matW(),matH=G.matH(),md=G.depth();
+  const dia=G.fDia(),Rmm=dia/2,type=S.fTool,stepPct=G.fStep();
+  const stepMm=Math.max(0.03,dia*stepPct);
+  const c=S.cols,r=S.rows,pxX=pxPerMmX(),pxY=pxPerMmY(),Rpx=Rmm*pxX;
+  const tanHalf=Math.tan((G.vAngle()/2)*Math.PI/180);
+  const across=S.dir==='y'?matW:matH, along=S.dir==='y'?matH:matW;
+  /* B9 FIX: nRows(4000) x nA(600) allowed a 2.4M-point program. That freezes
+     the tab for minutes and emits a G-code file most controllers cannot load,
+     with no warning at all. Bound the total and report the stepover actually
+     achieved rather than silently pretending the requested one was used. */
+  const MAX_PTS=600000;
+  const nA=Math.max(2,S.dir==='y'?r:c);        // sample along the axis we travel
+  let nRows=Math.max(2,Math.min(4000,Math.round(across/stepMm)+1)); // A2 guard
+  const reqRows=nRows;
+  if(nRows*nA>MAX_PTS)nRows=Math.max(2,Math.floor(MAX_PTS/nA));
+  const stepAchieved=across/Math.max(1,nRows-1);
+  const limited=nRows<reqRows;
+  setCutPool(Rpx);                    // bound the per-point footprint scan
+  const passes=[];let cut=0,npts=0,minZ=0;
+  for(let p=0;p<nRows;p++){
+    const pts=[],tAcross=(p/(nRows-1))*across;
+    for(let s=0;s<nA;s++){
+      const si=(p%2===0)?s:(nA-1-s), tAlong=(si/(nA-1))*along;
+      const wx=S.dir==='y'?tAcross:tAlong, wy=S.dir==='y'?tAlong:tAcross;
+      let z=dropCutter(wx*pxX,wy*pxY,Rpx,Rmm,md,type,tanHalf);
+      if(!isFinite(z))z=0;                                            // A1
+      if(z>0)z=0;                                                     // never above stock top
+      if(z<-md)z=-md;                     // never below the declared relief depth
+      if(z<minZ)minZ=z;
+      pts.push({x:wx,y:wy,z});}
+    passes.push({pts});npts+=pts.length;}
+  for(const p of passes)for(let i=1;i<p.pts.length;i++)
+    cut+=Math.hypot(p.pts[i].x-p.pts[i-1].x,p.pts[i].y-p.pts[i-1].y,p.pts[i].z-p.pts[i-1].z);
+  /* Scallop must be derived from the stepover actually used, not the requested
+     one, or the quality figure the UI shows is fiction whenever we clamp. */
+  const scallop=type==='ball'?Rmm-Math.sqrt(Math.max(0,Rmm*Rmm-(stepAchieved/2)*(stepAchieved/2))):null;
+  return {passes,npts,cut,minZ,scallop,stepMm:stepAchieved,reqStepMm:stepMm,limited,
+          feed:G.fFeed(),rpm:G.fRpm(),dia,type};
+}
+function generateOps(){
+  const t0=performance.now(); buildGrid(); if(!S.grid)return;
+  S.ops={rough:S.rough?genRoughing():null, fin:S.fin?genFinishing():null, ms:performance.now()-t0};
+}
+
+/* ---------- mesh ---------- */
+function buildMesh(){
+  const t0=performance.now(); if(!S.grid)buildGrid(); if(!S.grid)return;
+  const matW=G.matW(),matH=G.matH(),md=G.depth(),base=G.base();
+  const c=S.cols,r=S.rows,baseZ=-md-base,V=[],T=[];
+  const wx=x=>(x/(c-1))*matW, wy=y=>(y/(r-1))*matH;
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++)V.push([wx(x),wy(y),surfZ(x,y,md)]);
+  const id=(x,y)=>y*c+x;
+  /* top surface, CCW seen from +Z (normals up) */
+  for(let y=0;y<r-1;y++)for(let x=0;x<c-1;x++){const a=id(x,y),b=id(x+1,y),d=id(x,y+1),e=id(x+1,y+1);T.push([a,b,e]);T.push([a,e,d]);}
+
+  /* B4 FIX: the old mesh duplicated every wall vertex and capped the bottom
+     with a single 2-triangle quad, so the 636-segment wall perimeter met a
+     4-corner base -> 640 edges used once instead of twice (T-junction cracks
+     around the whole base), and every wall triangle was wound inward.
+     Rebuild sharing vertices: one perimeter ring, one base ring, fan cap. */
+  const per=[];                                   // CCW perimeter of the surface
+  for(let x=0;x<c;x++)per.push(id(x,0));
+  for(let y=1;y<r;y++)per.push(id(c-1,y));
+  for(let x=c-2;x>=0;x--)per.push(id(x,r-1));
+  for(let y=r-2;y>=1;y--)per.push(id(0,y));
+  const ring=per.map(pi=>{const v=V[pi];const n=V.length;V.push([v[0],v[1],baseZ]);return n;});
+  const n=per.length;
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n;
+    const A=per[i],B=per[j],C=ring[j],D=ring[i];
+    T.push([A,C,B]);T.push([A,D,C]);            // outward-facing walls
+  }
+  const ctr=V.length;V.push([matW/2,matH/2,baseZ]);
+  for(let i=0;i<n;i++)T.push([ctr,ring[(i+1)%n],ring[i]]);   // base fan, faces -Z
+  S.mesh={V,T,ms:performance.now()-t0};
+}
+
+/* ---------- G-code (audit-hardened) ---------- */
+function fmt(n){ if(!isFinite(n))n=0; return n.toFixed(3); }   // A1
+function buildGCode(){
+  const o=S.ops; if(!o)return '';
+  const d=$('dialect').value, safe=G.safe(), plunge=G.plunge();
+  const cm=d==='linuxcnc'?s=>'('+s+')':s=>'; '+s;
+  const L=[cm('Relief Studio — generated client-side · dialect='+d),
+           cm('stock '+G.matW()+'x'+G.matH()+'x'+G.matT()+'mm · relief depth '+G.depth()+'mm')];
+  L.push('G21','G90'); if(d!=='grbl')L.push('G17');
+  let n=0, emitted=0;
+  const tanR=Math.tan(G.ramp()*Math.PI/180);
+  /* B5 FIX: entries were a vertical G1 Z straight to full depth. With roughing
+     restored the finishing plunge only passes through the allowance shell, but
+     a user who disables roughing (or the first roughing level) still drives the
+     cutter into solid stock. Descend along the path at the ramp angle instead;
+     the ramp never goes below the final path, so it cannot gouge. */
+  const op=(o2,tag,rough)=>{
+    if(!o2||!o2.passes.length)return;
+    n++;emitted++;
+    L.push(cm('--- OP'+n+' '+tag+' · Ø'+o2.dia+'mm · S'+o2.rpm+' F'+o2.feed));
+    L.push('M6 T'+n,'M3 S'+Math.round(o2.rpm),'G0 Z'+fmt(safe));
+    for(const p of o2.passes){
+      if(!p.pts.length)continue;
+      const pts=p.pts, zAt=i=>rough?p.z:pts[i].z;
+      // entry height: previously cleared level for roughing, stock top otherwise
+      const entryZ=rough?Math.min(0,p.z+(o2.stepdown||0)):0;
+      const a=pts[0], z0=zAt(0);
+      L.push('G0 X'+fmt(a.x)+' Y'+fmt(a.y));
+      if(tanR<=1e-9||entryZ<=z0+1e-9||pts.length<2){
+        L.push('G1 Z'+fmt(z0)+' F'+Math.round(plunge));
+        for(let i=1;i<pts.length;i++){const q=pts[i];
+          L.push(rough?('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' F'+Math.round(o2.feed))
+                      :('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' Z'+fmt(q.z)+' F'+Math.round(o2.feed)));}
+      } else {
+        L.push('G1 Z'+fmt(entryZ)+' F'+Math.round(plunge));
+        let d=0,engaged=false;
+        for(let i=1;i<pts.length;i++){
+          const q=pts[i];
+          d+=Math.hypot(q.x-pts[i-1].x,q.y-pts[i-1].y);
+          const zf=zAt(i); let z=zf;
+          if(!engaged){const zr=entryZ-d*tanR; if(zr>zf+1e-9)z=zr; else engaged=true;}
+          L.push((engaged&&rough)
+            ?('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' F'+Math.round(o2.feed))
+            :('G1 X'+fmt(q.x)+' Y'+fmt(q.y)+' Z'+fmt(z)+' F'+Math.round(o2.feed)));
+        }
+      }
+      L.push('G0 Z'+fmt(safe));
+    }
+    L.push('M5');
+  };
+  op(o.rough,'ROUGHING (flat)',true);
+  op(o.fin,'FINISHING ('+(o.fin?o.fin.type:'')+')',false);
+  if(!emitted)L.push(cm('no material to remove with current settings'));   // A3
+  L.push('M30');
+  return L.join('\n');
+}
+function fnv1a(s){let h=0x811c9dc5;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,0x01000193);}
+  return ('00000000'+(h>>>0).toString(16)).slice(-8);}
+/* @core-end */
+
+/* =========================================================================
+   WebGL preview (column-major matrices — verified)
+   ========================================================================= */
+let gl,prog,bufs=null,orbit={yaw:-0.6,pitch:-0.85,dist:200},drag=false,last=null;
+/* B12 FIX: pitch was clamped to [-1.5, -0.05] rad, so the model could only be
+   viewed from a narrow band above — you could never look at it edge-on, from
+   below, or at the base. Open it to a full hemisphere-to-hemisphere sweep,
+   stopping just short of the poles where an orbit camera would roll over. */
+const PITCH_LIMIT=Math.PI/2-0.001;
+const clampPitch=p=>p<-PITCH_LIMIT?-PITCH_LIMIT:(p>PITCH_LIMIT?PITCH_LIMIT:p);
+function initGL(){
+  const cv=$('glCanvas'); gl=cv.getContext('webgl');
+  if(!gl)return;
+  const vs=`attribute vec3 p;attribute vec3 n;uniform mat4 uMVP;uniform mat4 uM;varying vec3 vN;varying float vH;
+    void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.y;}`;
+  const fs=`precision mediump float;varying vec3 vN;varying float vH;uniform float uRange;
+    void main(){vec3 L=normalize(vec3(0.45,0.75,0.5));
+      /* two-sided: now that the camera can orbit under the part, back faces
+         must light from their own side or the underside renders flat black */
+      vec3 N=normalize(vN); if(!gl_FrontFacing)N=-N;
+      float d=max(dot(N,L),0.0);
+      float lit=0.30+0.70*d;
+      float t=clamp((vH+uRange)/max(uRange,0.001),0.0,1.0);
+      vec3 base=mix(vec3(0.36,0.41,0.49),vec3(0.95,0.70,0.24),t);
+      gl_FragColor=vec4(base*lit,1.0);}`;
+  const mk=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;};
+  prog=gl.createProgram();gl.attachShader(prog,mk(gl.VERTEX_SHADER,vs));gl.attachShader(prog,mk(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);
+  cv.addEventListener('mousedown',e=>{drag=true;last=[e.clientX,e.clientY];});
+  window.addEventListener('mouseup',()=>drag=false);
+  window.addEventListener('mousemove',e=>{if(!drag)return;
+    orbit.yaw+=(e.clientX-last[0])*0.01; orbit.pitch+=(e.clientY-last[1])*0.01;
+    orbit.pitch=clampPitch(orbit.pitch); last=[e.clientX,e.clientY]; render3D();});
+  cv.addEventListener('wheel',e=>{e.preventDefault();orbit.dist*=1+Math.sign(e.deltaY)*0.09;
+    orbit.dist=Math.max(40,Math.min(900,orbit.dist));render3D();},{passive:false});
+  // Touch support (mobile orbit)
+  cv.addEventListener('touchstart',e=>{if(e.touches.length===1){drag=true;last=[e.touches[0].clientX,e.touches[0].clientY];}},{passive:true});
+  cv.addEventListener('touchend',()=>drag=false);
+  cv.addEventListener('touchmove',e=>{if(!drag||e.touches.length!==1)return;e.preventDefault();
+    const t=e.touches[0];orbit.yaw+=(t.clientX-last[0])*0.012;orbit.pitch+=(t.clientY-last[1])*0.012;
+    orbit.pitch=clampPitch(orbit.pitch);last=[t.clientX,t.clientY];render3D();},{passive:false});
+}
+function persp(f,a,n,fa){const t=1/Math.tan(f/2),nf=1/(n-fa);return[t/a,0,0,0, 0,t,0,0, 0,0,(fa+n)*nf,-1, 0,0,2*fa*n*nf,0];}
+function mul(a,b){const o=new Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+function rotX(a){const c=Math.cos(a),s=Math.sin(a);return[1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1];}
+function rotY(a){const c=Math.cos(a),s=Math.sin(a);return[c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1];}
+function trans(x,y,z){return[1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1];}
+function buildGLBuffers(){
+  if(!gl||!S.grid)return;
+  const c=S.cols,r=S.rows,matW=G.matW(),matH=G.matH(),md=G.depth();
+  const step=Math.max(1,Math.floor(Math.max(c,r)/130));
+  const C=Math.floor((c-1)/step)+1,R=Math.floor((r-1)/step)+1;
+  const pos=[],nor=[],idx=[],cx=matW/2,cy=matH/2;
+  const gz=(gx,gy)=>surfZ(gx,gy,md);
+  for(let j=0;j<R;j++)for(let i=0;i<C;i++){
+    const gx=Math.min(c-1,i*step),gy=Math.min(r-1,j*step);
+    pos.push((gx/(c-1))*matW-cx, gz(gx,gy), (gy/(r-1))*matH-cy);
+    const sx=(matW/(c-1))*step, sy=(matH/(r-1))*step;
+    const nx=-(gz(gx+step,gy)-gz(gx-step,gy))/(2*sx), nz=-(gz(gx,gy+step)-gz(gx,gy-step))/(2*sy);
+    const l=Math.hypot(nx,1,nz)||1; nor.push(nx/l,1/l,nz/l);}
+  for(let j=0;j<R-1;j++)for(let i=0;i<C-1;i++){const a=j*C+i;idx.push(a,a+1,a+C+1,a,a+C+1,a+C);}
+  const mkb=(arr,t)=>{const b=gl.createBuffer();gl.bindBuffer(t,b);gl.bufferData(t,arr,gl.STATIC_DRAW);return b;};
+  bufs={pos:mkb(new Float32Array(pos),gl.ARRAY_BUFFER),nor:mkb(new Float32Array(nor),gl.ARRAY_BUFFER),
+    idx:mkb(new Uint16Array(idx),gl.ELEMENT_ARRAY_BUFFER),count:idx.length};
+  orbit.dist=Math.max(matW,matH)*1.7;
+}
+function fitCanvas(cv){const r=cv.getBoundingClientRect();
+  const w=Math.max(2,Math.round(r.width)),h=Math.max(2,Math.round(r.height));
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;} return [w,h];}
+function render3D(){
+  if(!gl||!bufs)return; const cv=$('glCanvas'); const [w,h]=fitCanvas(cv);
+  gl.viewport(0,0,w,h); gl.clearColor(0.055,0.067,0.078,1); gl.enable(gl.DEPTH_TEST);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.useProgram(prog);
+  const ex=num('exag',1,0.1,5);
+  const model=mul(mul(rotY(orbit.yaw),rotX(orbit.pitch)),[1,0,0,0, 0,ex,0,0, 0,0,1,0, 0,0,0,1]);
+  const mvp=mul(persp(0.9,w/h,1,4000),mul(trans(0,0,-orbit.dist),model));
+  gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uMVP'),false,new Float32Array(mvp));
+  gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uM'),false,new Float32Array(model));
+  gl.uniform1f(gl.getUniformLocation(prog,'uRange'),Math.max(0.5,G.depth()));
+  const pl=gl.getAttribLocation(prog,'p'),nl=gl.getAttribLocation(prog,'n');
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufs.pos);gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,bufs.nor);gl.enableVertexAttribArray(nl);gl.vertexAttribPointer(nl,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,bufs.idx);
+  gl.drawElements(gl.TRIANGLES,bufs.count,gl.UNSIGNED_SHORT,0);
+}
+
+/* ---------- 2D views ---------- */
+function draw2D(){
+  const cv=$('c2d'); const [w,h]=fitCanvas(cv); const ctx=cv.getContext('2d');
+  ctx.fillStyle='#0e1114'; ctx.fillRect(0,0,w,h);
+  if(!S.grid)return;
+  const matW=G.matW(),matH=G.matH(),md=G.depth();
+  if(S.view==='height'){
+    const c=S.cols,r=S.rows,off=document.createElement('canvas');off.width=c;off.height=r;
+    const im=off.getContext('2d').createImageData(c,r);
+    /* canvas rows run top->down while grid row 0 is world Y=0 (bottom), so read
+       the grid bottom-up to show the part the way you look down at the table */
+    for(let y=0;y<r;y++)for(let x=0;x<c;x++){
+      const v=Math.round(S.grid[(r-1-y)*c+x]*255),i=y*c+x;
+      im.data[i*4]=v;im.data[i*4+1]=v;im.data[i*4+2]=v;im.data[i*4+3]=255;}
+    off.getContext('2d').putImageData(im,0,0);
+    const sc=Math.min(w/c,h/r)*0.92, dw=c*sc, dh=r*sc;
+    ctx.imageSmoothingEnabled=false; ctx.drawImage(off,(w-dw)/2,(h-dh)/2,dw,dh);
+  } else if(S.view==='path'){
+    const o=S.ops; if(!o){ctx.fillStyle='#6b7580';ctx.font='12px monospace';ctx.fillText('Generate toolpaths to view',20,30);return;}
+    const sc=Math.min(w/matW,h/matH)*0.92, ox=(w-matW*sc)/2, oy=(h-matH*sc)/2;
+    /* same flip as the heightfield view: world Y up, canvas Y down */
+    const PX=x=>ox+x*sc, PY=y=>oy+(matH-y)*sc;
+    if(o.rough)for(const p of o.rough.passes){
+      const t=Math.min(1,Math.abs(p.z)/Math.max(0.1,md));
+      ctx.strokeStyle='rgba(139,124,240,'+(0.3+0.55*t)+')';ctx.lineWidth=0.8;ctx.beginPath();
+      p.pts.forEach((q,i)=>i?ctx.lineTo(PX(q.x),PY(q.y)):ctx.moveTo(PX(q.x),PY(q.y)));ctx.stroke();}
+    if(o.fin){ctx.strokeStyle='rgba(240,169,43,0.65)';ctx.lineWidth=0.7;
+      for(const p of o.fin.passes){ctx.beginPath();
+        p.pts.forEach((q,i)=>i?ctx.lineTo(PX(q.x),PY(q.y)):ctx.moveTo(PX(q.x),PY(q.y)));ctx.stroke();}}
+  } else if(S.view==='section'){
+    const c=S.cols,gy=Math.floor(S.rows/2),pad=28,W=w-pad*2,H=h-pad*2;
+    const zTop=1.5,zBot=-(md+2);
+    const Z=z=>pad+((zTop-z)/(zTop-zBot))*H, X=wx=>pad+(wx/matW)*W;
+    ctx.strokeStyle='#2f353d';ctx.beginPath();ctx.moveTo(pad,Z(0));ctx.lineTo(pad+W,Z(0));ctx.stroke();
+    ctx.fillStyle='#6b7580';ctx.font='10px monospace';ctx.fillText('Z0 stock top',pad+3,Z(0)-4);
+    ctx.beginPath();ctx.moveTo(X(0),Z(0));
+    for(let gx=0;gx<c;gx++)ctx.lineTo(X((gx/(c-1))*matW),Z(surfZ(gx,gy,md)));
+    ctx.lineTo(X(matW),Z(0));ctx.closePath();
+    ctx.fillStyle='rgba(74,85,104,.5)';ctx.fill();ctx.strokeStyle='#4a5568';ctx.lineWidth=1.3;ctx.stroke();
+    if(S.ops&&S.ops.fin){const dia=G.fDia(),Rm=dia/2,ty=S.fTool,tan=Math.tan((G.vAngle()/2)*Math.PI/180);
+      const pxX=c/matW,Rpx=Rm*pxX,n=Math.min(70,Math.max(6,Math.floor(matW/Math.max(0.2,S.ops.fin.stepMm))));
+      ctx.strokeStyle='rgba(240,169,43,.5)';ctx.lineWidth=1;
+      for(let s=0;s<=n;s++){const wx=(s/n)*matW,tip=dropCutter(wx*pxX,gy,Rpx,Rm,md,ty,tan),PX=X(wx);
+        const rh=(Rm/matW)*W, rv=(Rm/(zTop-zBot))*H;
+        ctx.beginPath();
+        if(ty==='ball')ctx.ellipse(PX,Z(tip+Rm),rh,rv,0,0,Math.PI*2);
+        else if(ty==='vbit'){ctx.moveTo(PX-rh,Z(tip+Rm/Math.max(1e-6,tan)));ctx.lineTo(PX,Z(tip));ctx.lineTo(PX+rh,Z(tip+Rm/Math.max(1e-6,tan)));}
+        else{ctx.moveTo(PX-rh,Z(tip));ctx.lineTo(PX+rh,Z(tip));}
+        ctx.stroke();}}
+  }
+}
+function setView(v){
+  S.view=v;
+  const is3=v==='3d';
+  $('glCanvas').style.display=is3?'block':'none';
+  $('c2d').style.display=is3?'none':'block';
+  $('exagWrap').style.display=is3?'block':'none';
+  $('vpLegend').style.display=v==='path'?'flex':'none';
+  $('vpHint').textContent=is3?'Drag to orbit · scroll to zoom':
+    v==='path'?'Top view · colored by operation':v==='section'?'Cross-section at mid-height':'Processed heightfield';
+  [...$('vpTabs').children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  if(is3){buildGLBuffers();render3D();}else draw2D();
+}
+
+/* ---------- exporters ---------- */
+function triN(a,b,c){const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+  let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;const L=Math.hypot(nx,ny,nz)||1;return[nx/L,ny/L,nz/L];}
+function stlBin(m){const{V,T}=m,n=T.length,buf=new ArrayBuffer(84+n*50),dv=new DataView(buf);
+  dv.setUint32(80,n,true);let o=84;for(const t of T){const a=V[t[0]],b=V[t[1]],c=V[t[2]],nn=triN(a,b,c);
+    dv.setFloat32(o,nn[0],true);dv.setFloat32(o+4,nn[1],true);dv.setFloat32(o+8,nn[2],true);o+=12;
+    for(const p of[a,b,c]){dv.setFloat32(o,p[0],true);dv.setFloat32(o+4,p[1],true);dv.setFloat32(o+8,p[2],true);o+=12;}
+    dv.setUint16(o,0,true);o+=2;}return new Blob([buf],{type:'application/octet-stream'});}
+function stlAsc(m){const{V,T}=m,L=['solid relief'];for(const t of T){const a=V[t[0]],b=V[t[1]],c=V[t[2]],nn=triN(a,b,c);
+  L.push(' facet normal '+nn.map(fmt).join(' '),'  outer loop');for(const p of[a,b,c])L.push('   vertex '+p.map(fmt).join(' '));
+  L.push('  endloop',' endfacet');}L.push('endsolid relief');return new Blob([L.join('\n')],{type:'text/plain'});}
+function objF(m){const{V,T}=m,L=['# Relief Studio'];for(const v of V)L.push('v '+v.map(fmt).join(' '));
+  for(const t of T)L.push('f '+(t[0]+1)+' '+(t[1]+1)+' '+(t[2]+1));return new Blob([L.join('\n')],{type:'text/plain'});}
+function plyF(m){const{V,T}=m,L=['ply','format ascii 1.0','element vertex '+V.length,'property float x','property float y','property float z',
+  'element face '+T.length,'property list uchar int vertex_indices','end_header'];
+  for(const v of V)L.push(v.map(fmt).join(' '));for(const t of T)L.push('3 '+t.join(' '));return new Blob([L.join('\n')],{type:'text/plain'});}
+function b64(b){let s='';const CH=0x8000;for(let i=0;i<b.length;i+=CH)s+=String.fromCharCode.apply(null,b.subarray(i,i+CH));return btoa(s);}
+function crc32(b){let c=~0;for(let i=0;i<b.length;i++){c^=b[i];for(let k=0;k<8;k++)c=(c>>>1)^(0xEDB88320&-(c&1));}return ~c>>>0;}
+function zipStore(files,mime){const enc=new TextEncoder(),parts=[],cen=[];let off=0;
+  for(const f of files){const nm=enc.encode(f.name),da=enc.encode(f.data),cr=crc32(da);
+    const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);
+    lh.setUint32(14,cr,true);lh.setUint32(18,da.length,true);lh.setUint32(22,da.length,true);lh.setUint16(26,nm.length,true);
+    parts.push(new Uint8Array(lh.buffer),nm,da);
+    const ch=new DataView(new ArrayBuffer(46));ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);
+    ch.setUint32(16,cr,true);ch.setUint32(20,da.length,true);ch.setUint32(24,da.length,true);ch.setUint16(28,nm.length,true);ch.setUint32(42,off,true);
+    cen.push({h:new Uint8Array(ch.buffer),n:nm});off+=30+nm.length+da.length;}
+  const cs=off;let cl=0;const cp=[];for(const c of cen){cp.push(c.h,c.n);cl+=c.h.length+c.n.length;}
+  const eo=new DataView(new ArrayBuffer(22));eo.setUint32(0,0x06054b50,true);eo.setUint16(8,files.length,true);
+  eo.setUint16(10,files.length,true);eo.setUint32(12,cl,true);eo.setUint32(16,cs,true);
+  return new Blob([...parts,...cp,new Uint8Array(eo.buffer)],{type:mime});}
+function mf3(m){const{V,T}=m;let x='<mesh><vertices>';for(const v of V)x+='<vertex x="'+fmt(v[0])+'" y="'+fmt(v[1])+'" z="'+fmt(v[2])+'"/>';
+  x+='</vertices><triangles>';for(const t of T)x+='<triangle v1="'+t[0]+'" v2="'+t[1]+'" v3="'+t[2]+'"/>';x+='</triangles></mesh>';
+  return zipStore([
+   {name:'[Content_Types].xml',data:'<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'},
+   {name:'_rels/.rels',data:'<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'},
+   {name:'3D/3dmodel.model',data:'<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model">'+x+'</object></resources><build><item objectid="1"/></build></model>'}
+  ],'model/3mf');}
+function gltfF(m){const{V,T}=m,pos=new Float32Array(V.length*3);let mn=[1/0,1/0,1/0],mx=[-1/0,-1/0,-1/0];
+  V.forEach((v,i)=>{for(let k=0;k<3;k++){pos[i*3+k]=v[k];if(v[k]<mn[k])mn[k]=v[k];if(v[k]>mx[k])mx[k]=v[k];}});
+  const ix=new Uint32Array(T.length*3);T.forEach((t,i)=>{ix[i*3]=t[0];ix[i*3+1]=t[1];ix[i*3+2]=t[2];});
+  const pB=new Uint8Array(pos.buffer),iB=new Uint8Array(ix.buffer),tt=new Uint8Array(pB.length+iB.length);
+  tt.set(pB,0);tt.set(iB,pB.length);
+  return new Blob([JSON.stringify({asset:{version:"2.0",generator:"Relief Studio"},
+    buffers:[{byteLength:tt.length,uri:"data:application/octet-stream;base64,"+b64(tt)}],
+    bufferViews:[{buffer:0,byteOffset:0,byteLength:pB.length,target:34962},{buffer:0,byteOffset:pB.length,byteLength:iB.length,target:34963}],
+    accessors:[{bufferView:0,componentType:5126,count:V.length,type:"VEC3",min:mn,max:mx},{bufferView:1,componentType:5125,count:T.length*3,type:"SCALAR"}],
+    meshes:[{primitives:[{attributes:{POSITION:0},indices:1}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0})],{type:'model/gltf+json'});}
+function svgF(){const o=S.ops,matW=G.matW(),matH=G.matH();let p='';
+  const add=ps=>ps.forEach(q=>{if(!q.pts.length)return;p+='<path d="';
+    q.pts.forEach((r,i)=>p+=(i?'L':'M')+r.x.toFixed(2)+' '+(matH-r.y).toFixed(2)+' ');p+='" fill="none" stroke="#000" stroke-width="0.2"/>';});
+  if(o&&o.rough)add(o.rough.passes); if(o&&o.fin)add(o.fin.passes);
+  return new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="'+matW+'mm" height="'+matH+'mm" viewBox="0 0 '+matW+' '+matH+'">'+p+'</svg>'],{type:'image/svg+xml'});}
+function dxfF(){const o=S.ops,L=['0','SECTION','2','ENTITIES'];
+  const add=ps=>ps.forEach(q=>{if(!q.pts.length)return;L.push('0','LWPOLYLINE','8','0','90',String(q.pts.length),'70','0');
+    q.pts.forEach(r=>L.push('10',r.x.toFixed(3),'20',r.y.toFixed(3)));});
+  if(o&&o.rough)add(o.rough.passes); if(o&&o.fin)add(o.fin.passes);
+  L.push('0','ENDSEC','0','EOF');return new Blob([L.join('\n')],{type:'application/dxf'});}
+function pngF(){const c=S.cols,r=S.rows,cv=document.createElement('canvas');cv.width=c;cv.height=r;
+  const ctx=cv.getContext('2d'),im=ctx.createImageData(c,r);
+  // exported depth map keeps the source image's orientation, not the grid's
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++){
+    const v=Math.round(S.grid[(r-1-y)*c+x]*255),i=y*c+x;
+    im.data[i*4]=v;im.data[i*4+1]=v;im.data[i*4+2]=v;im.data[i*4+3]=255;}
+  ctx.putImageData(im,0,0);return new Promise(res=>cv.toBlob(res,'image/png'));}
+function save(b,n){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=n;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),3000);}
+
+$('dl').onclick=()=>{
+  const f=$('fmt').value;
+  if(['stlb','stla','obj','ply','3mf','gltf'].includes(f)){
+    buildMesh(); const m=S.mesh;
+    const map={stlb:[stlBin,'stl'],stla:[stlAsc,'stl'],obj:[objF,'obj'],ply:[plyF,'ply'],'3mf':[mf3,'3mf'],gltf:[gltfF,'gltf']};
+    save(map[f][0](m),'relief.'+map[f][1]);
+    $('exportNote').textContent=m.T.length.toLocaleString()+' triangles · watertight surface + walls + base';
+  } else if(f==='png'){pngF().then(b=>save(b,'depthmap.png'));$('exportNote').textContent='8-bit depth map at grid resolution.';}
+  else if(f==='svg'){if(!S.ops)generateAll();save(svgF(),'toolpaths.svg');$('exportNote').textContent='Vector paths for both operations.';}
+  else if(f==='dxf'){if(!S.ops)generateAll();save(dxfF(),'toolpaths.dxf');$('exportNote').textContent='DXF polylines for both operations.';}
+  else {if(!S.ops)generateAll();save(new Blob([$('gcode').value||''],{type:'text/plain'}),'relief.nc');
+    $('exportNote').textContent=$('dialect').value.toUpperCase()+' G-code exported.';}
+};
+
+/* ---------- project save/load ---------- */
+const FIELDS=['bri','con','gam','blk','wht','blur','matW','matH','matT','depth','base','res',
+  'rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge','ramp','rapid','dialect','fmt'];
+$('saveProj').onclick=()=>{
+  const p={v:1,fields:{},flags:{invert:S.invert,mirror:S.mirror,fTool:S.fTool,dir:S.dir,rough:S.rough,fin:S.fin}};
+  FIELDS.forEach(f=>p.fields[f]=$(f).value);
+  save(new Blob([JSON.stringify(p,null,2)],{type:'application/json'}),'relief-project.json');
+};
+$('loadProj').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{try{
+    const p=JSON.parse(rd.result);
+    if(p.fields)FIELDS.forEach(k=>{if(p.fields[k]!=null&&$(k))$(k).value=p.fields[k];});
+    if(p.flags){S.invert=p.flags.invert|0;S.mirror=p.flags.mirror|0;S.fTool=p.flags.fTool||'ball';
+      S.dir=p.flags.dir||'x';S.rough=!!p.flags.rough;S.fin=!!p.flags.fin;
+      segSet('invSeg',String(S.invert));segSet('mirSeg',String(S.mirror));
+      segSet('fToolSeg',S.fTool);segSet('dirSeg',S.dir);
+      $('roughTog').classList.toggle('on',S.rough);$('finTog').classList.toggle('on',S.fin);
+      $('invV').textContent=S.invert?'on':'off';$('mirV').textContent=S.mirror?'on':'off';
+      $('fToolName').textContent=S.fTool==='ball'?'Ball-nose':S.fTool==='vbit'?'V-bit':'Flat';
+      $('vAngleField').style.display=S.fTool==='vbit'?'':'none';}
+    syncLabels();generateAll();
+  }catch(err){alert('Could not read that project file.');}};
+  rd.readAsText(f);});
+
+/* ---------- orchestration ---------- */
+const st=(k,v)=>'<div class="stat"><div class="k mono">'+k+'</div><div class="v mono">'+v+'</div></div>';
+/* B7 FIX: the old estimate was cutLength/feed only, ignoring every rapid,
+   plunge and retract. On a 333-pass raster that is hundreds of moves the
+   machine actually spends time on, so the number was optimistic by a wide
+   margin. Account for descend, retract and pass-to-pass reposition. */
+function opTime(o2,rough){
+  if(!o2||!o2.passes.length)return 0;
+  const feed=Math.max(1,o2.feed),plunge=Math.max(1,G.plunge()),rapid=Math.max(1,G.rapid()),safe=G.safe();
+  let t=o2.cut/feed, prev=null;
+  for(const p of o2.passes){
+    if(!p.pts.length)continue;
+    const a=p.pts[0],b=p.pts[p.pts.length-1];
+    t+=(safe-(rough?p.z:a.z))/plunge;
+    t+=(safe-(rough?p.z:b.z))/rapid;
+    if(prev)t+=Math.hypot(a.x-prev.x,a.y-prev.y)/rapid;
+    prev=b;
+  }
+  return t;
+}
+function generateAll(){
+  if(!S.img)loadSample();
+  generateOps(); if(!S.ops)return;
+  buildMesh();
+  const o=S.ops;
+  const rT=opTime(o.rough,true), fT=opTime(o.fin,false);
+  const pts=(o.rough?o.rough.npts:0)+(o.fin?o.fin.npts:0);
+  const gc=buildGCode(); $('gcode').value=gc; $('hash').textContent=gc?fnv1a(gc):'—';
+  $('stats').innerHTML=
+    st('Ops',(o.rough&&o.rough.passes.length?1:0)+(o.fin&&o.fin.passes.length?1:0))+
+    st('Rough levels',o.rough?o.rough.levels:'—')+
+    st('Path pts',pts.toLocaleString())+
+    st('Scallop',o.fin&&o.fin.scallop!=null?o.fin.scallop.toFixed(3)+'mm':'n/a')+
+    st('Rough time',rT.toFixed(1)+' min')+
+    st('Finish time',fT.toFixed(1)+' min')+
+    st('Total',(rT+fT).toFixed(1)+' min')+
+    st('Compute',o.ms.toFixed(0)+' ms');
+  // banner
+  /* B8 FIX: "nothing to cut" keyed off point count, but a finishing pass always
+     emits nRows x nA points even when every one of them sits at Z0. The banner
+     therefore said "Program ready" for programs that removed no material at
+     all. Judge by actual depth removed, and warn on the cases that produce
+     plausible-looking but unusable G-code. */
+  const md=G.depth(),th=G.matT(); let cls='banner',msg='';
+  const roughCut=o.rough?o.rough.cut:0, finDeep=o.fin?-o.fin.minZ:0;
+  const removes=roughCut>1e-6||finDeep>1e-4;
+  const fRpx=o.fin?(o.fin.dia/2)*pxPerMmX():99;
+  const warns=[];
+  if(o.fin&&fRpx<0.5)warns.push('Grid is too coarse for a Ø'+o.fin.dia+'mm tool ('+fRpx.toFixed(2)+
+    ' px radius) — raise <b>Detail</b> in step 3 or the path will not resolve the tool.');
+  if(o.fin&&!o.rough&&finDeep>2)warns.push('Finishing is running without a roughing pass and cuts '+
+    finDeep.toFixed(1)+'mm deep — enable roughing or reduce depth.');
+  if(o.rough&&o.rough.limited)warns.push('Roughing stepdown was increased to keep the program '+
+    'loadable: requested '+o.rough.reqStepdown.toFixed(2)+'mm, using <b>'+o.rough.stepdown.toFixed(2)+
+    'mm</b> (full depth is still reached).');
+  if(o.fin&&o.fin.limited)warns.push('Stepover was clamped to keep the program loadable: requested '+
+    o.fin.reqStepMm.toFixed(3)+'mm, using <b>'+o.fin.stepMm.toFixed(3)+'mm</b>. Lower <b>Detail</b> or '+
+    'raise stepover to get the finish you asked for.');
+  if(md>th){cls='banner bad';msg='<b>Depth exceeds stock.</b> Relief depth '+md+'mm is deeper than '+th+'mm stock — this will cut through.';}
+  else if(!removes){cls='banner warn';msg='<b>Nothing to cut.</b> Current depth mapping leaves no material to remove — try adjusting contrast or turning invert on.';}
+  else if(warns.length){cls='banner warn';msg='<b>Check before machining.</b> '+warns.join(' ');}
+  else {msg='<b>✓ Program ready.</b> '+pts.toLocaleString()+' points, deterministic, computed in '+o.ms.toFixed(0)+'ms — entirely in this browser.';}
+  $('banner').className=cls; $('banner').innerHTML=msg;
+  $('timing').textContent='Generated in '+o.ms.toFixed(0)+' ms';
+  setView(S.view);
+}
+$('genBtn').onclick=generateAll;
+
+/* ---------- source image ---------- */
+function setImg(cv){S.img=cv.getContext('2d').getImageData(0,0,cv.width,cv.height);}
+function loadSample(){const n=256,cv=document.createElement('canvas');cv.width=n;cv.height=n;
+  const ctx=cv.getContext('2d'),im=ctx.createImageData(n,n);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const cx=x/n-.5,cy=y/n-.5,d=Math.hypot(cx,cy);
+    let v=Math.pow(Math.max(0,1-d*2),0.8);
+    v+=0.17*Math.max(0,Math.sin((x/n)*Math.PI*6))*Math.max(0,1-d*2.2);
+    v=Math.min(1,v);const g=Math.round(v*255),i=(y*n+x)*4;im.data[i]=g;im.data[i+1]=g;im.data[i+2]=g;im.data[i+3]=255;}
+  ctx.putImageData(im,0,0);setImg(cv);
+  $('imgInfo').textContent='Built-in sample relief (256×256).';}
+function handleFile(f){
+  if(!f||!f.type.startsWith('image/')){alert('Please choose an image file.');return;}
+  const im=new Image();
+  im.onload=()=>{const mx=700,sc=Math.min(1,mx/Math.max(im.width,im.height));
+    const w=Math.max(2,Math.round(im.width*sc)),h=Math.max(2,Math.round(im.height*sc));
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(im,0,0,w,h);
+    setImg(cv);$('imgInfo').textContent=f.name+' · '+im.width+'×'+im.height+' px';
+    URL.revokeObjectURL(im.src); generateAll();};
+  im.onerror=()=>alert('That image could not be read.');
+  im.src=URL.createObjectURL(f);}
+$('file').addEventListener('change',e=>handleFile(e.target.files[0]));
+$('drop').onclick=()=>$('file').click();
+['dragenter','dragover'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('over');}));
+['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('over');}));
+$('drop').addEventListener('drop',e=>{if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);});
+$('sampleBtn').onclick=()=>{loadSample();generateAll();};
+
+/* ---------- UI wiring ---------- */
+function segSet(id,v){[...$(id).children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));}
+function segWire(id,cb){$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  segSet(id,b.dataset.v);cb(b.dataset.v);});}
+segWire('invSeg',v=>{S.invert=+v;$('invV').textContent=+v?'on':'off';generateAll();});
+segWire('mirSeg',v=>{S.mirror=+v;$('mirV').textContent=+v?'on':'off';generateAll();});
+segWire('fToolSeg',v=>{S.fTool=v;$('fToolName').textContent=v==='ball'?'Ball-nose':v==='vbit'?'V-bit':'Flat';
+  $('vAngleField').style.display=v==='vbit'?'':'none';syncLabels();});
+segWire('dirSeg',v=>{S.dir=v;});
+function togWire(id,k){$(id).addEventListener('click',()=>{$(id).classList.toggle('on');S[k]=$(id).classList.contains('on');});}
+togWire('roughTog','rough');togWire('finTog','fin');
+
+function syncLabels(){
+  const pairs=[['bri','briV'],['con','conV'],['blk','blkV'],['wht','whtV'],['blur','blurV'],
+    ['depth','depthV'],['res','resV'],['rStep','rStepV'],['fStep','fStepV']];
+  pairs.forEach(([a,b])=>{if($(b))$(b).textContent=$(a).value;});
+  if($('gamV'))$('gamV').textContent=(+$('gam').value).toFixed(1);
+  if($('exagV'))$('exagV').textContent=(+$('exag').value).toFixed(1);
+  const R=G.fDia()/2,stp=Math.max(0.03,G.fDia()*G.fStep());
+  $('scallopV').textContent=S.fTool==='ball'?(R-Math.sqrt(Math.max(0,R*R-(stp/2)*(stp/2)))).toFixed(3)+'mm':'n/a';
+  const md=G.depth(),th=G.matT();
+  $('depthWarn').innerHTML=md>th?'<span class="warn-txt">Deeper than '+th+'mm stock — will cut through.</span>':'';
+  $('dialectField').style.display=$('fmt').value==='gcode'?'':'none';
+}
+// live-update inputs
+['bri','con','gam','blk','wht','blur'].forEach(id=>$(id).addEventListener('input',()=>{syncLabels();generateAll();}));
+['depth','res'].forEach(id=>$(id).addEventListener('input',()=>{syncLabels();generateAll();}));
+['matW','matH','matT','base'].forEach(id=>$(id).addEventListener('change',()=>{syncLabels();generateAll();}));
+['rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge']
+  .forEach(id=>$(id).addEventListener('input',syncLabels));
+$('exag').addEventListener('input',()=>{syncLabels();if(S.view==='3d')render3D();});
+$('fmt').addEventListener('change',syncLabels);
+$('dialect').addEventListener('change',()=>{if(S.ops){const g=buildGCode();$('gcode').value=g;$('hash').textContent=fnv1a(g);}});
+$('resetDepth').onclick=()=>{$('bri').value=0;$('con').value=0;$('gam').value=1;$('blk').value=0;$('wht').value=100;$('blur').value=1;
+  S.invert=0;S.mirror=0;segSet('invSeg','0');segSet('mirSeg','0');$('invV').textContent='off';$('mirV').textContent='off';
+  syncLabels();generateAll();};
+
+// step navigation
+function goStep(i){S.step=i;
+  [...$('steps').children].forEach((s,k)=>{s.classList.toggle('on',k===i);s.classList.toggle('done',k<i);});
+  document.querySelectorAll('.panel-group').forEach(p=>p.classList.toggle('on',+p.dataset.p===i));
+  if(i===3||i===4)setView(S.view==='3d'?'path':S.view);
+}
+$('steps').addEventListener('click',e=>{const s=e.target.closest('.step');if(s)goStep(+s.dataset.s);});
+document.querySelectorAll('[data-next]').forEach(b=>b.onclick=()=>goStep(+b.dataset.next));
+$('vpTabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)setView(b.dataset.v);});
+window.addEventListener('resize',()=>{if(S.view==='3d'){render3D();}else draw2D();});
+
+// boot
+initGL(); loadSample(); syncLabels(); generateAll(); setView('3d');
+</script>
+</body>
+</html>

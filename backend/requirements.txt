@@ -1,0 +1,19 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+# D3 FIX: EmailStr needs email-validator, and python-multipart is required for
+# any form/upload route - neither was declared, so a fresh install crashed at
+# import. pydantic pinned explicitly since the response models rely on v2's
+# ConfigDict(from_attributes=True).
+pydantic[email]==2.*
+python-multipart==0.0.*
+sqlalchemy==2.0.*
+psycopg2-binary==2.9.*
+redis==5.2.*
+pyjwt==2.9.*
+boto3==1.35.*
+numpy==2.1.*
+pillow==11.*
+stripe==11.*
+httpx==0.28.*
+pytest==8.*
+pytest-asyncio==0.24.*

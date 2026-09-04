@@ -1,0 +1,31 @@
+# build output
+site/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# node
+node_modules/
+
+# secrets — never commit a filled-in .env; deploy/.env.example is the template
+.env
+.env.*
+!.env.example
+
+# local artifacts
+samples/
+testdata/
+*.stl
+*.obj
+*.nc
+*.tar.gz
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

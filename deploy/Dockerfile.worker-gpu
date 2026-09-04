@@ -1,0 +1,18 @@
+# GPU worker (Phase 4 — AI depth). Referenced by the commented worker-gpu
+# service in docker-compose.yml, which previously pointed at a file that did
+# not exist.
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir "transformers==4.*" "accelerate==1.*"
+COPY . .
+# Warm the model into the image so an autoscaled pod does not pay the download
+# on its first job.
+ARG AI_DEPTH_MODEL=depth_anything_v2
+ENV AI_DEPTH_MODEL=${AI_DEPTH_MODEL}
+RUN python -c "from transformers import AutoImageProcessor, AutoModelForDepthEstimation as M; \
+n='depth-anything/Depth-Anything-V2-Small-hf'; AutoImageProcessor.from_pretrained(n); M.from_pretrained(n)" \
+ || echo "model prefetch skipped"
+ENV WORKER_TYPE=gpu
+CMD ["python", "-m", "workers.runner"]

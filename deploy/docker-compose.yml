@@ -1,0 +1,143 @@
+# Relief Studio — Docker Compose (LOCAL DEV ONLY)
+#
+# D1 FIX: this file was labelled "dev/staging", but it publishes Postgres,
+# Redis and MinIO to the host with well-known default credentials and pins a
+# published JWT signing key. That is fine on a laptop and unsafe anywhere
+# reachable. Staging/production deploy each service separately with real
+# secrets - do not point this file at a shared environment.
+#
+# Production: deploy each service independently with autoscaling.
+
+services:
+  # ---- Postgres ----
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: relief
+      POSTGRES_PASSWORD: relief
+      POSTGRES_DB: relief
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relief"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---- Redis (job queue) ----
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  # ---- MinIO (S3-compatible object storage for dev) ----
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"   # MinIO console
+    volumes:
+      - s3data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---- Bucket bootstrap ----
+  # D2 FIX: nothing ever created the bucket, and neither api nor worker even
+  # depended on minio. Every S3 call therefore failed with NoSuchBucket, and
+  # the workers' bare `except Exception` swallowed it into an unreachable /tmp
+  # fallback - the escalation path looked healthy while being entirely broken.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/relief-studio-files &&
+      echo 'bucket ready'
+      "
+
+  # ---- API ----
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://relief:relief@db:5432/relief
+      REDIS_URL: redis://redis:6379/0
+      S3_BUCKET: relief-studio-files
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      SECRET_KEY: change-this-in-production
+      ENV: dev
+      CORS_ORIGINS: "*"
+      STRIPE_SECRET_KEY: sk_test_placeholder
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Worker (CPU — heavy toolpath) ----
+  worker-cpu:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql://relief:relief@db:5432/relief
+      REDIS_URL: redis://redis:6379/0
+      S3_BUCKET: relief-studio-files
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      WORKER_TYPE: cpu
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Worker (GPU — AI depth, optional) ----
+  # Uncomment when GPU instance is available
+  # worker-gpu:
+  #   build:
+  #     context: ../backend
+  #     dockerfile: ../deploy/Dockerfile.worker-gpu
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   environment:
+  #     DATABASE_URL: postgresql://relief:relief@db:5432/relief
+  #     REDIS_URL: redis://redis:6379/0
+  #     WORKER_TYPE: gpu
+  #     AI_DEPTH_MODEL: depth_anything_v2
+
+volumes:
+  pgdata:
+  s3data:

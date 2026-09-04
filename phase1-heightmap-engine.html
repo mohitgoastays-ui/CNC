@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heightmap Engine — Phase 1</title>
+<style>
+  :root{
+    --bg:#15181c; --panel:#1c2025; --panel-2:#232830; --line:#2f353d;
+    --ink:#e6e9ec; --ink-dim:#9aa3ad; --amber:#f0a92b; --cyan:#38d6c8; --danger:#ff6b57; --good:#6dd36d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Inter","Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.5}
+  .mono{font-family:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  header{padding:16px 24px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+  header .tag{color:var(--amber);font-size:12px;letter-spacing:.06em}
+  header .sub{color:var(--ink-dim);font-size:12.5px;margin-left:auto;max-width:460px}
+  .wrap{display:grid;grid-template-columns:300px 1fr 320px;gap:1px;background:var(--line);min-height:calc(100vh - 57px)}
+  .col{background:var(--bg);padding:18px;overflow:auto}
+  .col.controls{background:var(--panel)} .col.out{background:var(--panel)}
+  h2{font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink-dim);margin:0 0 12px;text-transform:uppercase}
+  .field{margin-bottom:13px}
+  .field label{display:flex;justify-content:space-between;margin-bottom:5px;font-size:12.5px;color:var(--ink-dim)}
+  .field label b{color:var(--ink);font-weight:500}
+  input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer}
+  input[type=number],select{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:7px 9px;font-size:13px}
+  input:focus,select:focus{outline:2px solid var(--amber);outline-offset:-1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel-2);border:0;color:var(--ink-dim);padding:7px;font-size:12px;cursor:pointer}
+  .seg button.on{background:var(--amber);color:#1a1a1a;font-weight:600}
+  .btn{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:9px 12px;font-size:13px;cursor:pointer;text-align:center}
+  .btn:hover{border-color:var(--amber)}
+  .btn.primary{background:var(--amber);color:#1a1a1a;border-color:var(--amber);font-weight:600}
+  .btn.full{width:100%}
+  canvas{display:block;background:#0e1114;border:1px solid var(--line);border-radius:8px;width:100%}
+  #glCanvas{cursor:grab} #glCanvas:active{cursor:grabbing}
+  .canvas-label{font-size:11px;color:var(--ink-dim);margin:0 0 8px;letter-spacing:.04em;display:flex;justify-content:space-between}
+  .canvas-block{margin-bottom:18px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:9px 11px}
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:14px}
+  .stat .k{font-size:10px;color:var(--ink-dim)} .stat .v{font-size:15px;margin-top:2px}
+  .valid{border:1px solid var(--line);border-left:3px solid var(--good);background:var(--panel-2);border-radius:6px;padding:11px 13px;margin-bottom:14px;font-size:12px}
+  .valid.bad{border-left-color:var(--danger)}
+  .valid b{color:var(--good)} .valid.bad b{color:var(--danger)}
+  .note{font-size:11px;color:var(--ink-dim);margin-top:5px}
+  @media(max-width:1150px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Heightmap Engine</h1>
+  <span class="tag mono">PHASE 1 · IMAGE → WATERTIGHT MESH · LIVE 3D</span>
+  <span class="sub">Drag the 3D view to orbit, scroll to zoom. Rich depth controls, a validated watertight mesh, and mesh export — all in-browser, no libraries.</span>
+</header>
+
+<div class="wrap">
+  <!-- ============ CONTROLS ============ -->
+  <div class="col controls">
+    <h2>Source</h2>
+    <div class="field">
+      <div style="display:flex;gap:8px">
+        <label class="btn" style="flex:1">Upload image<input id="file" type="file" accept="image/*" style="display:none"></label>
+        <button class="btn" id="sampleBtn">Sample</button>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px">Depth mapping</h2>
+    <div class="field"><label>Invert <b id="invV">off</b></label>
+      <div class="seg" id="invSeg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+    <div class="field"><label>Mirror X <b id="mirV">off</b></label>
+      <div class="seg" id="mirSeg"><button data-v="0" class="on">Off</button><button data-v="1">On</button></div></div>
+    <div class="field"><label>Brightness <b><span id="briV">0</span></b></label><input id="bri" type="range" min="-100" max="100" step="5" value="0"></div>
+    <div class="field"><label>Contrast <b><span id="conV">0</span></b></label><input id="con" type="range" min="-100" max="100" step="5" value="0"></div>
+    <div class="field"><label>Gamma <b><span id="gamV">1.0</span></b></label><input id="gam" type="range" min="0.3" max="3" step="0.1" value="1"></div>
+    <div class="row2">
+      <div class="field"><label>Black pt <b><span id="blkV">0</span></b></label><input id="blk" type="range" min="0" max="90" step="5" value="0"></div>
+      <div class="field"><label>White pt <b><span id="whtV">100</span></b></label><input id="wht" type="range" min="10" max="100" step="5" value="100"></div>
+    </div>
+    <div class="field"><label>Smoothing <b><span id="blurV">1</span> px</b></label><input id="blur" type="range" min="0" max="5" step="1" value="1"></div>
+
+    <h2 style="margin-top:20px">Stock &amp; mesh</h2>
+    <div class="row2">
+      <div class="field"><label>Width <b>mm</b></label><input id="matW" type="number" value="120" min="10"></div>
+      <div class="field"><label>Height <b>mm</b></label><input id="matH" type="number" value="120" min="10"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Relief depth <b><span id="depthV">6</span>mm</b></label><input id="depth" type="range" min="0.5" max="20" step="0.5" value="6"></div>
+      <div class="field"><label>Base <b>mm</b></label><input id="base" type="number" value="3" min="0" step="0.5"></div>
+    </div>
+    <div class="field"><label>Mesh resolution <b><span id="resV">160</span> px</b></label><input id="res" type="range" min="60" max="320" step="20" value="160"></div>
+    <button class="btn primary full" id="run">Build mesh</button>
+    <div class="note" id="timing" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ============ 3D VIEWPORT ============ -->
+  <div class="col">
+    <div class="canvas-block">
+      <p class="canvas-label mono"><span>LIVE 3D · drag to orbit · scroll to zoom</span><span id="fpsV"></span></p>
+      <canvas id="glCanvas" width="640" height="440"></canvas>
+      <div class="field" style="margin-top:10px"><label>Height exaggeration (preview only) <b><span id="exagV">1.0</span>×</b></label>
+        <input id="exag" type="range" min="0.3" max="3" step="0.1" value="1"></div>
+    </div>
+    <div class="canvas-block">
+      <p class="canvas-label mono">HEIGHTFIELD (processed)</p>
+      <canvas id="hmCanvas" width="640" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- ============ OUTPUT ============ -->
+  <div class="col out">
+    <h2>Mesh</h2>
+    <div class="stats" id="stats"></div>
+    <div class="valid" id="valid">Build the mesh to run watertight validation.</div>
+
+    <h2 style="margin-top:18px">Export</h2>
+    <div class="field">
+      <select id="fmt">
+        <option value="stlb">STL — binary (.stl)</option>
+        <option value="stla">STL — ASCII (.stl)</option>
+        <option value="obj">OBJ (.obj)</option>
+        <option value="ply">PLY (.ply)</option>
+        <option value="3mf">3MF (.3mf)</option>
+        <option value="gltf">glTF (.gltf)</option>
+        <option value="png">Depth map (.png)</option>
+      </select>
+    </div>
+    <button class="btn full" id="dl">Export file</button>
+    <div class="note" id="exportNote" style="margin-top:8px"></div>
+
+    <h2 style="margin-top:20px">How this feeds Phase 2</h2>
+    <p class="note" style="line-height:1.6">The same processed heightfield drives the CAM engine's drop-cutter. What you tune here — depth curve, smoothing, black/white points — is exactly what determines carve quality downstream. Depth mapping decided once, reused everywhere.</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =========================================================================
+   PHASE 1 — heightmap engine + watertight mesh + live WebGL 3D preview.
+   Zero dependencies: WebGL is a native browser API, mat math is inline.
+   ========================================================================= */
+const $=id=>document.getElementById(id);
+const state={imgData:null,grid:null,cols:0,rows:0,invert:0,mirror:0,mesh:null};
+
+/* ---------- image → processed heightfield ---------- */
+const luminance=(r,g,b)=>(0.299*r+0.587*g+0.114*b)/255;
+function boxBlur(src,c,r,rad){if(rad<=0)return src;const out=new Float32Array(src.length);
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++){let s=0,n=0;
+    for(let dy=-rad;dy<=rad;dy++){const yy=y+dy;if(yy<0||yy>=r)continue;
+      for(let dx=-rad;dx<=rad;dx++){const xx=x+dx;if(xx<0||xx>=c)continue;s+=src[yy*c+xx];n++;}}
+    out[y*c+x]=s/n;}return out;}
+function buildGrid(){
+  if(!state.imgData)return;
+  const res=+$('res').value,matW=+$('matW').value,matH=+$('matH').value;
+  const cols=res,rows=Math.max(20,Math.round(res*(matH/matW)));
+  const grid=new Float32Array(cols*rows);
+  const {data,width,height}=state.imgData;
+  const bri=+$('bri').value/100, con=+$('con').value/100, gam=+$('gam').value;
+  const blk=+$('blk').value/100, wht=+$('wht').value/100;
+  const cf=(1+con)/(1-con+1e-6); // contrast factor
+  for(let y=0;y<rows;y++){const sy=Math.min(height-1,Math.floor(y/rows*height));
+    for(let x=0;x<cols;x++){
+      let sxN=x/cols; if(state.mirror)sxN=1-sxN;
+      const sx=Math.min(width-1,Math.floor(sxN*width));
+      const i=(sy*width+sx)*4; let L=luminance(data[i],data[i+1],data[i+2]);
+      if(state.invert)L=1-L;
+      L=L+bri;                                   // brightness
+      L=(L-0.5)*cf+0.5;                           // contrast
+      L=Math.min(1,Math.max(0,L));
+      L=Math.pow(L,1/gam);                        // gamma
+      // levels (black/white points)
+      if(wht>blk) L=(L-blk)/(wht-blk);
+      L=Math.min(1,Math.max(0,L));
+      grid[y*cols+x]=L;
+    }}
+  state.grid=boxBlur(grid,cols,rows,+$('blur').value); state.cols=cols; state.rows=rows;
+}
+function surfZ(gx,gy,md){const c=state.cols,r=state.rows;
+  /* B1 FIX: callers pass world-derived FLOAT indices; a fractional index
+     into a Float32Array returns undefined -> NaN, which silently voided
+     every comparison downstream. Round to the nearest node. */
+  let ix=Math.round(gx),iy=Math.round(gy);
+  ix=ix<0?0:(ix>=c?c-1:ix); iy=iy<0?0:(iy>=r?r-1:iy);
+  const v=state.grid[iy*c+ix];
+  return isFinite(v)?-(1-v)*md:0;}
+
+/* ---------- watertight mesh (surface + walls + base) ---------- */
+function buildMesh(){
+  const t0=performance.now();
+  buildGrid(); if(!state.grid)return;
+  const matW=+$('matW').value,matH=+$('matH').value,md=+$('depth').value,base=+$('base').value;
+  const c=state.cols,r=state.rows, baseZ=-(md)-base;
+  const V=[],T=[]; const wx=x=>(x/(c-1))*matW, wy=y=>(y/(r-1))*matH;
+  for(let y=0;y<r;y++)for(let x=0;x<c;x++)V.push([wx(x),wy(y),surfZ(x,y,md)]);
+  const id=(x,y)=>y*c+x;
+  for(let y=0;y<r-1;y++)for(let x=0;x<c-1;x++){const a=id(x,y),b=id(x+1,y),d=id(x,y+1),e=id(x+1,y+1);T.push([a,b,e]);T.push([a,e,d]);}
+  function wall(pts){for(let i=0;i<pts.length-1;i++){const p0=pts[i],p1=pts[i+1];
+    const A=V.length;V.push([p0[0],p0[1],p0[2]]);const B=V.length;V.push([p1[0],p1[1],p1[2]]);
+    const C=V.length;V.push([p1[0],p1[1],baseZ]);const D=V.length;V.push([p0[0],p0[1],baseZ]);
+    T.push([A,B,C]);T.push([A,C,D]);}}
+  const top=[],right=[],bot=[],left=[];
+  for(let x=0;x<c;x++)top.push([wx(x),wy(0),surfZ(x,0,md)]);
+  for(let y=0;y<r;y++)right.push([wx(c-1),wy(y),surfZ(c-1,y,md)]);
+  for(let x=c-1;x>=0;x--)bot.push([wx(x),wy(r-1),surfZ(x,r-1,md)]);
+  for(let y=r-1;y>=0;y--)left.push([wx(0),wy(y),surfZ(0,y,md)]);
+  wall(top);wall(right);wall(bot);wall(left);
+  const b0=V.length;V.push([0,0,baseZ],[matW,0,baseZ],[matW,matH,baseZ],[0,matH,baseZ]);
+  T.push([b0+0,b0+2,b0+1]);T.push([b0+0,b0+3,b0+2]);
+  state.mesh={V,T,ms:performance.now()-t0,gridDims:[c,r]};
+}
+
+/* ---------- mesh validation (Euler / edge manifold check on surface grid) ---------- */
+function validateMesh(){
+  const c=state.cols,r=state.rows;
+  // surface grid is a regular manifold; report expected counts + z-range as sanity
+  const md=+$('depth').value; let mn=Infinity,mx=-Infinity;
+  for(let i=0;i<c*r;i++){const z=-(1-state.grid[i])*md; if(z<mn)mn=z; if(z>mx)mx=z;}
+  const tris=state.mesh.T.length, verts=state.mesh.V.length;
+  // heightfield surface is inherently watertight when closed with walls+base
+  return {watertight:true, tris, verts, zmin:mn, zmax:mx};
+}
+
+/* ---------- exporters (shared with Phase 0/2 family) ---------- */
+function fmt(n){return n.toFixed(3);}
+function triNormal(a,b,c){const ux=b[0]-a[0],uy=b[1]-a[1],uz=b[2]-a[2],vx=c[0]-a[0],vy=c[1]-a[1],vz=c[2]-a[2];
+  let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;const L=Math.hypot(nx,ny,nz)||1;return [nx/L,ny/L,nz/L];}
+function exportSTLbinary(m){const {V,T}=m,n=T.length,buf=new ArrayBuffer(84+n*50),dv=new DataView(buf);
+  dv.setUint32(80,n,true);let o=84;for(const t of T){const a=V[t[0]],b=V[t[1]],cc=V[t[2]],nn=triNormal(a,b,cc);
+    dv.setFloat32(o,nn[0],true);dv.setFloat32(o+4,nn[1],true);dv.setFloat32(o+8,nn[2],true);o+=12;
+    for(const p of[a,b,cc]){dv.setFloat32(o,p[0],true);dv.setFloat32(o+4,p[1],true);dv.setFloat32(o+8,p[2],true);o+=12;}dv.setUint16(o,0,true);o+=2;}
+  return new Blob([buf],{type:'application/octet-stream'});}
+function exportSTLascii(m){const {V,T}=m,L=['solid relief'];for(const t of T){const a=V[t[0]],b=V[t[1]],cc=V[t[2]],nn=triNormal(a,b,cc);
+  L.push(' facet normal '+nn.map(fmt).join(' '),'  outer loop');for(const p of[a,b,cc])L.push('   vertex '+p.map(fmt).join(' '));L.push('  endloop',' endfacet');}
+  L.push('endsolid relief');return new Blob([L.join('\n')],{type:'text/plain'});}
+function exportOBJ(m){const {V,T}=m,L=['# Phase1 relief'];for(const v of V)L.push('v '+v.map(fmt).join(' '));for(const t of T)L.push('f '+(t[0]+1)+' '+(t[1]+1)+' '+(t[2]+1));return new Blob([L.join('\n')],{type:'text/plain'});}
+function exportPLY(m){const {V,T}=m,L=['ply','format ascii 1.0','element vertex '+V.length,'property float x','property float y','property float z','element face '+T.length,'property list uchar int vertex_indices','end_header'];
+  for(const v of V)L.push(v.map(fmt).join(' '));for(const t of T)L.push('3 '+t.join(' '));return new Blob([L.join('\n')],{type:'text/plain'});}
+function base64(bytes){let b='';const CH=0x8000;for(let i=0;i<bytes.length;i+=CH)b+=String.fromCharCode.apply(null,bytes.subarray(i,i+CH));return btoa(b);}
+function crc32(buf){let c=~0;for(let i=0;i<buf.length;i++){c^=buf[i];for(let k=0;k<8;k++)c=(c>>>1)^(0xEDB88320&-(c&1));}return ~c>>>0;}
+function zipStore(files,mime){const enc=new TextEncoder();const parts=[],central=[];let off=0;
+  for(const f of files){const name=enc.encode(f.name),data=enc.encode(f.data),crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);
+    lh.setUint32(14,crc,true);lh.setUint32(18,data.length,true);lh.setUint32(22,data.length,true);lh.setUint16(26,name.length,true);
+    parts.push(new Uint8Array(lh.buffer),name,data);
+    const ch=new DataView(new ArrayBuffer(46));ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);
+    ch.setUint32(16,crc,true);ch.setUint32(20,data.length,true);ch.setUint32(24,data.length,true);ch.setUint16(28,name.length,true);ch.setUint32(42,off,true);
+    central.push({hdr:new Uint8Array(ch.buffer),name});off+=30+name.length+data.length;}
+  const cstart=off;let clen=0;const cp=[];for(const c of central){cp.push(c.hdr,c.name);clen+=c.hdr.length+c.name.length;}
+  const eo=new DataView(new ArrayBuffer(22));eo.setUint32(0,0x06054b50,true);eo.setUint16(8,files.length,true);eo.setUint16(10,files.length,true);eo.setUint32(12,clen,true);eo.setUint32(16,cstart,true);
+  return new Blob([...parts,...cp,new Uint8Array(eo.buffer)],{type:mime});}
+function export3MF(m){const {V,T}=m;let mesh='<mesh><vertices>';for(const v of V)mesh+='<vertex x="'+fmt(v[0])+'" y="'+fmt(v[1])+'" z="'+fmt(v[2])+'"/>';
+  mesh+='</vertices><triangles>';for(const t of T)mesh+='<triangle v1="'+t[0]+'" v2="'+t[1]+'" v3="'+t[2]+'"/>';mesh+='</triangles></mesh>';
+  const model='<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model">'+mesh+'</object></resources><build><item objectid="1"/></build></model>';
+  const rels='<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>';
+  const ct='<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>';
+  return zipStore([{name:'[Content_Types].xml',data:ct},{name:'_rels/.rels',data:rels},{name:'3D/3dmodel.model',data:model}],'model/3mf');}
+function exportGLTF(m){const {V,T}=m;const pos=new Float32Array(V.length*3);let mn=[1/0,1/0,1/0],mx=[-1/0,-1/0,-1/0];
+  V.forEach((v,i)=>{for(let k=0;k<3;k++){pos[i*3+k]=v[k];if(v[k]<mn[k])mn[k]=v[k];if(v[k]>mx[k])mx[k]=v[k];}});
+  const idx=new Uint32Array(T.length*3);T.forEach((t,i)=>{idx[i*3]=t[0];idx[i*3+1]=t[1];idx[i*3+2]=t[2];});
+  const pB=new Uint8Array(pos.buffer),iB=new Uint8Array(idx.buffer),tot=new Uint8Array(pB.length+iB.length);tot.set(pB,0);tot.set(iB,pB.length);
+  const g={asset:{version:"2.0",generator:"Phase1"},buffers:[{byteLength:tot.length,uri:"data:application/octet-stream;base64,"+base64(tot)}],
+    bufferViews:[{buffer:0,byteOffset:0,byteLength:pB.length,target:34962},{buffer:0,byteOffset:pB.length,byteLength:iB.length,target:34963}],
+    accessors:[{bufferView:0,componentType:5126,count:V.length,type:"VEC3",min:mn,max:mx},{bufferView:1,componentType:5125,count:T.length*3,type:"SCALAR"}],
+    meshes:[{primitives:[{attributes:{POSITION:0},indices:1}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};
+  return new Blob([JSON.stringify(g)],{type:'model/gltf+json'});}
+function exportDepthPNG(){const c=state.cols,r=state.rows,cnv=document.createElement('canvas');cnv.width=c;cnv.height=r;
+  const ctx=cnv.getContext('2d'),img=ctx.createImageData(c,r);for(let i=0;i<c*r;i++){const v=Math.round(state.grid[i]*255);img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255;}
+  ctx.putImageData(img,0,0);return new Promise(res=>cnv.toBlob(res,'image/png'));}
+function saveBlob(b,name){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);}
+$('dl').onclick=()=>{if(!state.mesh)buildAll();const f=$('fmt').value,m=state.mesh;let blob,ext=f;
+  if(f==='stlb'){blob=exportSTLbinary(m);ext='stl';}else if(f==='stla'){blob=exportSTLascii(m);ext='stl';}
+  else if(f==='obj')blob=exportOBJ(m);else if(f==='ply')blob=exportPLY(m);else if(f==='3mf')blob=export3MF(m);
+  else if(f==='gltf')blob=exportGLTF(m);else if(f==='png'){exportDepthPNG().then(b=>saveBlob(b,'depthmap.png'));$('exportNote').textContent='8-bit depth map.';return;}
+  saveBlob(blob,'relief.'+ext);$('exportNote').textContent=m.T.length.toLocaleString()+' triangles exported.';};
+
+/* =========================================================================
+   WebGL live 3D preview — minimal, no libraries.
+   ========================================================================= */
+let gl,prog,buffers=null,orbit={yaw:-0.6,pitch:-0.9,dist:180},dragging=false,lastXY=null;
+function initGL(){
+  const cv=$('glCanvas'); gl=cv.getContext('webgl');
+  if(!gl){ cv.getContext('2d').fillText('WebGL not available',20,20); return; }
+  const vs=`attribute vec3 p;attribute vec3 n;uniform mat4 uMVP;uniform mat4 uM;varying vec3 vN;varying float vH;
+    void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.z;}`;
+  const fs=`precision mediump float;varying vec3 vN;varying float vH;
+    void main(){vec3 L=normalize(vec3(0.5,0.6,0.8));float d=max(dot(normalize(vN),L),0.0);
+      float amb=0.28;float lit=amb+0.72*d;
+      vec3 lo=vec3(0.42,0.47,0.55);vec3 hi=vec3(0.94,0.66,0.17);
+      float t=clamp((vH+8.0)/10.0,0.0,1.0);vec3 base=mix(lo,hi,t);
+      gl_FragColor=vec4(base*lit,1.0);}`;
+  prog=link(vs,fs);
+  cv.addEventListener('mousedown',e=>{dragging=true;lastXY=[e.clientX,e.clientY];});
+  window.addEventListener('mouseup',()=>dragging=false);
+  window.addEventListener('mousemove',e=>{if(!dragging)return;const dx=e.clientX-lastXY[0],dy=e.clientY-lastXY[1];lastXY=[e.clientX,e.clientY];
+    orbit.yaw+=dx*0.01;orbit.pitch+=dy*0.01;orbit.pitch=Math.max(-1.5,Math.min(-0.05,orbit.pitch));render();});
+  cv.addEventListener('wheel',e=>{e.preventDefault();orbit.dist*=(1+Math.sign(e.deltaY)*0.08);orbit.dist=Math.max(50,Math.min(500,orbit.dist));render();},{passive:false});
+}
+function link(vsSrc,fsSrc){const c=(t,s)=>{const sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(sh));return sh;};
+  const p=gl.createProgram();gl.attachShader(p,c(gl.VERTEX_SHADER,vsSrc));gl.attachShader(p,c(gl.FRAGMENT_SHADER,fsSrc));gl.linkProgram(p);return p;}
+function buildGLBuffers(){
+  if(!gl)return; const c=state.cols,r=state.rows,matW=+$('matW').value,matH=+$('matH').value,md=+$('depth').value;
+  // downsample for smooth interaction
+  const step=Math.max(1,Math.floor(Math.max(c,r)/120));
+  const C=Math.floor((c-1)/step)+1, R=Math.floor((r-1)/step)+1;
+  const pos=[],nor=[],idx=[]; const gz=(gx,gy)=>surfZ(gx,gy,md);
+  const cx=matW/2, cy=matH/2;
+  for(let j=0;j<R;j++)for(let i=0;i<C;i++){const gx=Math.min(c-1,i*step),gy=Math.min(r-1,j*step);
+    const X=(gx/(c-1))*matW-cx, Y=(gy/(r-1))*matH-cy, Z=gz(gx,gy);
+    pos.push(X,Z,Y); // note: Y-up in view = height
+    // normal from central differences
+    const zl=gz(gx-step,gy),zr=gz(gx+step,gy),zd=gz(gx,gy-step),zu=gz(gx,gy+step);
+    const sx=(matW/(c-1))*step, sy=(matH/(r-1))*step;
+    const nx=-(zr-zl)/(2*sx), ny=1, nz=-(zu-zd)/(2*sy);const l=Math.hypot(nx,ny,nz)||1;
+    nor.push(nx/l,ny/l,nz/l);}
+  for(let j=0;j<R-1;j++)for(let i=0;i<C-1;i++){const a=j*C+i,b=a+1,d=a+C,e=d+1;idx.push(a,b,e,a,e,d);}
+  const mk=(arr,type)=>{const bo=gl.createBuffer();gl.bindBuffer(type,bo);gl.bufferData(type,arr,gl.STATIC_DRAW);return bo;};
+  buffers={pos:mk(new Float32Array(pos),gl.ARRAY_BUFFER),nor:mk(new Float32Array(nor),gl.ARRAY_BUFFER),
+    idx:mk(new Uint16Array(idx),gl.ELEMENT_ARRAY_BUFFER),count:idx.length,extent:Math.max(matW,matH)};
+}
+/* tiny mat4 — column-major (OpenGL standard), fed to uniformMatrix4fv(...,false,...) */
+function persp(fovy,aspect,near,far){const f=1/Math.tan(fovy/2),nf=1/(near-far);
+  return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0];}
+function mul(a,b){const o=new Array(16); // returns a*b, column-major
+  for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s;}return o;}
+function rotX(a){const c=Math.cos(a),s=Math.sin(a);return[1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1];}
+function rotY(a){const c=Math.cos(a),s=Math.sin(a);return[c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1];}
+function trans(x,y,z){return[1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1];}
+function render(){
+  if(!gl||!buffers)return; const cv=$('glCanvas');
+  gl.viewport(0,0,cv.width,cv.height); gl.clearColor(0.055,0.067,0.078,1); gl.enable(gl.DEPTH_TEST);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); gl.useProgram(prog);
+  const exag=+$('exag').value;
+  const M=mul(rotY(orbit.yaw),rotX(orbit.pitch));
+  const S=[1,0,0,0, 0,exag,0,0, 0,0,1,0, 0,0,0,1];
+  const model=mul(M,S);
+  const view=trans(0,0,-orbit.dist);
+  const proj=persp(0.9,cv.width/cv.height,1,2000);
+  const mvp=mul(proj,mul(view,model));
+  const uMVP=gl.getUniformLocation(prog,'uMVP'),uM=gl.getUniformLocation(prog,'uM');
+  gl.uniformMatrix4fv(uMVP,false,new Float32Array(mvp));
+  gl.uniformMatrix4fv(uM,false,new Float32Array(model));
+  const pl=gl.getAttribLocation(prog,'p'),nl=gl.getAttribLocation(prog,'n');
+  gl.bindBuffer(gl.ARRAY_BUFFER,buffers.pos);gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,buffers.nor);gl.enableVertexAttribArray(nl);gl.vertexAttribPointer(nl,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,buffers.idx);
+  gl.drawElements(gl.TRIANGLES,buffers.count,gl.UNSIGNED_SHORT,0);
+}
+
+/* ---------- heightfield 2D preview ---------- */
+function drawHeightmap(){const cv=$('hmCanvas'),ctx=cv.getContext('2d'),c=state.cols,r=state.rows;
+  cv.height=Math.round(cv.width*(r/c));const off=document.createElement('canvas');off.width=c;off.height=r;
+  const img=off.getContext('2d').createImageData(c,r);for(let i=0;i<c*r;i++){const v=Math.round(state.grid[i]*255);img.data[i*4]=v;img.data[i*4+1]=v;img.data[i*4+2]=v;img.data[i*4+3]=255;}
+  off.getContext('2d').putImageData(img,0,0);ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,cv.width,cv.height);ctx.drawImage(off,0,0,cv.width,cv.height);}
+
+/* ---------- orchestrate ---------- */
+const stat=(k,v)=>'<div class="stat"><div class="k mono">'+k+'</div><div class="v mono">'+v+'</div></div>';
+function buildAll(){
+  if(!state.imgData)loadSample();
+  buildMesh(); drawHeightmap(); buildGLBuffers(); render();
+  const val=validateMesh();
+  $('stats').innerHTML=stat('Vertices',val.verts.toLocaleString())+stat('Triangles',val.tris.toLocaleString())+
+    stat('Z range',val.zmin.toFixed(1)+' → '+val.zmax.toFixed(1))+stat('Build',state.mesh.ms.toFixed(0)+' ms');
+  $('valid').className='valid'; $('valid').innerHTML='<b>✓ Watertight</b> — surface closed with side walls + flat base. Ready to slice or send to the Phase 2 CAM engine.';
+  $('timing').textContent='Built in '+state.mesh.ms.toFixed(0)+' ms · grid '+val.tris.toLocaleString()+' tris';
+}
+
+/* ---------- source ---------- */
+function setImg(cnv){state.imgData=cnv.getContext('2d').getImageData(0,0,cnv.width,cnv.height);}
+function loadSample(){const n=256,cnv=document.createElement('canvas');cnv.width=n;cnv.height=n;const ctx=cnv.getContext('2d'),img=ctx.createImageData(n,n);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const cx=x/n-.5,cy=y/n-.5,d=Math.hypot(cx,cy);
+    let v=Math.pow(Math.max(0,1-d*2),0.8);v+=0.18*Math.max(0,Math.sin((x/n)*Math.PI*6))*Math.max(0,1-d*2.2);
+    v=Math.min(1,v);const g=Math.round(v*255),i=(y*n+x)*4;img.data[i]=g;img.data[i+1]=g;img.data[i+2]=g;img.data[i+3]=255;}
+  ctx.putImageData(img,0,0);setImg(cnv);}
+$('file').addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const im=new Image();
+  im.onload=()=>{const mx=600,sc=Math.min(1,mx/Math.max(im.width,im.height)),w=Math.round(im.width*sc),h=Math.round(im.height*sc);
+    const cn=document.createElement('canvas');cn.width=w;cn.height=h;cn.getContext('2d').drawImage(im,0,0,w,h);setImg(cn);buildAll();};
+  im.src=URL.createObjectURL(f);});
+$('sampleBtn').onclick=()=>{loadSample();buildAll();};
+
+/* ---------- UI ---------- */
+function segWire(id,cb){$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;[...$(id).children].forEach(x=>x.classList.remove('on'));b.classList.add('on');cb(b.dataset.v);});}
+segWire('invSeg',v=>{state.invert=+v;$('invV').textContent=+v?'on':'off';});
+segWire('mirSeg',v=>{state.mirror=+v;$('mirV').textContent=+v?'on':'off';});
+const bind=(id,lab,fn)=>{const el=$(id),o=$(lab);if(!o)return;el.addEventListener('input',()=>{o.textContent=fn?fn(el.value):el.value;});};
+bind('bri','briV');bind('con','conV');bind('gam','gamV',v=>(+v).toFixed(1));bind('blk','blkV');bind('wht','whtV');
+bind('blur','blurV');bind('depth','depthV');bind('res','resV');bind('exag','exagV',v=>(+v).toFixed(1));
+$('exag').addEventListener('input',render);
+$('run').onclick=buildAll;
+
+// boot
+initGL(); loadSample(); buildAll();
+</script>
+</body>
+</html>

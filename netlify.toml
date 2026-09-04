@@ -1,0 +1,36 @@
+[build]
+  publish = "site"
+  command = "node build-site.mjs"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# The app is a single self-contained HTML file with no external JS or CSS.
+# The landing page pulls only Google Fonts. Everything else is denied, so a
+# future edit that quietly adds a third-party script fails loudly instead of
+# shipping a tracker into a tool that advertises "no upload, works offline".
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; base-uri 'self'; form-action 'none'; frame-ancestors 'self'"
+
+# The app reads image files the user picks locally; nothing is uploaded.
+[[headers]]
+  for = "/app/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[redirects]]
+  from = "/app"
+  to = "/app/"
+  status = 301
+
+# Old direct link, in case it is already shared anywhere.
+[[redirects]]
+  from = "/phase3-relief-studio.html"
+  to = "/app/"
+  status = 301
