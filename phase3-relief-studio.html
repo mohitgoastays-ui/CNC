@@ -261,6 +261,20 @@
         <select id="dialect"><option value="grbl">GRBL</option><option value="mach3">Mach3</option><option value="linuxcnc">LinuxCNC</option></select></div>
       <button class="btn primary full" id="dl">Export file</button>
       <div class="note" id="exportNote"></div>
+      <div class="banner warn" style="margin-top:12px">
+        <b>Before you cut.</b> This G-code has not been validated on a physical
+        machine. Run it in the air first (spindle off, Z raised), then in scrap,
+        before committing good stock.
+        <br><br>
+        The program contains <b>two tools</b> and issues <code>M6</code> between
+        them. Many GRBL builds ignore <code>M6</code> — if yours does, the
+        finishing pass will run with the roughing cutter still fitted. Confirm
+        how your controller handles the tool change, or export and run the two
+        operations separately.
+        <br><br>
+        Work origin: <b>X0 Y0 at the stock's front-left corner, Z0 at the stock
+        top surface.</b> All cuts are negative Z.
+      </div>
       <details style="margin-top:14px"><summary>Which formats are in scope — and why</summary>
         <div class="note" style="line-height:1.6;margin-top:8px">
           <p style="margin:0 0 7px"><b style="color:var(--cyan)">In scope:</b> STL · OBJ · PLY · 3MF · glTF · SVG · DXF · depth PNG · G-code. All derive directly from the depth surface, so they stay dimensionally honest.</p>
