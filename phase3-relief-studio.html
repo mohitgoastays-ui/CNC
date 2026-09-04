@@ -177,13 +177,14 @@
         <div class="field"><label>H <b>mm</b></label><input id="matH" type="number" value="120" min="10"></div>
         <div class="field"><label>Thick <b>mm</b></label><input id="matT" type="number" value="18" min="1"></div>
       </div>
+      <div class="note" id="stockFit"></div>
       <div class="field"><label>Relief depth <b><span id="depthV">6</span> mm</b></label>
         <input id="depth" type="range" min="0.5" max="25" step="0.5" value="6">
         <div class="note" id="depthWarn"></div></div>
       <div class="field"><label>Base thickness <b>mm</b></label><input id="base" type="number" value="3" min="0" step="0.5">
         <div class="note">Solid material kept under the deepest cut — mesh export only.</div></div>
       <h2>Compute</h2>
-      <div class="field"><label>Grid resolution <b><span id="resV">160</span> px</b></label><input id="res" type="range" min="60" max="340" step="20" value="160">
+      <div class="field"><label>Grid resolution <b><span id="resV">160</span> px</b></label><input id="res" type="range" min="60" max="600" step="20" value="160">
         <div class="note">Higher = finer detail, slower. Browser-bound; server escalation is a later phase.</div></div>
       <button class="btn primary full" data-next="3">Next: Toolpaths →</button>
     </div>
@@ -967,11 +968,20 @@ function generateAll(){
   const rT=opTime(o.rough,true), fT=opTime(o.fin,false);
   const pts=(o.rough?o.rough.npts:0)+(o.fin?o.fin.npts:0);
   const gc=buildGCode(); $('gcode').value=gc; $('hash').textContent=gc?fnv1a(gc):'—';
+  /* B16: report what the setup can physically reproduce. A ball-nose cannot
+     enter a concave feature narrower than its own diameter, and nothing finer
+     than two grid cells exists in the heightfield to begin with. Showing both
+     makes it obvious which one is throwing the detail away. */
+  const cellMm=G.matW()/Math.max(1,S.cols-1);
+  const toolMm=o.fin?o.fin.dia:0;
+  const minFeat=Math.max(toolMm,cellMm*2);
   $('stats').innerHTML=
     st('Ops',(o.rough&&o.rough.passes.length?1:0)+(o.fin&&o.fin.passes.length?1:0))+
     st('Rough levels',o.rough?o.rough.levels:'—')+
     st('Path pts',pts.toLocaleString())+
     st('Scallop',o.fin&&o.fin.scallop!=null?o.fin.scallop.toFixed(3)+'mm':'n/a')+
+    st('Grid cell',cellMm.toFixed(3)+'mm')+
+    st('Min feature',minFeat.toFixed(2)+'mm')+
     st('Rough time',rT.toFixed(1)+' min')+
     st('Finish time',fT.toFixed(1)+' min')+
     st('Total',(rT+fT).toFixed(1)+' min')+
@@ -988,7 +998,11 @@ function generateAll(){
   const fRpx=o.fin?(o.fin.dia/2)*pxPerMmX():99;
   const warns=[];
   if(o.fin&&fRpx<0.5)warns.push('Grid is too coarse for a Ø'+o.fin.dia+'mm tool ('+fRpx.toFixed(2)+
-    ' px radius) — raise <b>Detail</b> in step 3 or the path will not resolve the tool.');
+    ' px radius) — raise <b>Grid resolution</b> in step 3 or the path will not resolve the tool.');
+  if(o.fin&&toolMm>cellMm*6)warns.push('The Ø'+o.fin.dia+'mm finishing tool is the detail limit here: '+
+    'it cannot enter anything narrower than <b>'+toolMm.toFixed(1)+'mm</b>, while the heightfield '+
+    'resolves '+cellMm.toFixed(3)+'mm. Fine line-work will be rounded over — use a smaller ball or '+
+    'a V-bit to reproduce it.');
   if(o.fin&&!o.rough&&finDeep>2)warns.push('Finishing is running without a roughing pass and cuts '+
     finDeep.toFixed(1)+'mm deep — enable roughing or reduce depth.');
   if(o.rough&&o.rough.limited)warns.push('Roughing stepdown was increased to keep the program '+
@@ -1008,7 +1022,26 @@ function generateAll(){
 $('genBtn').onclick=generateAll;
 
 /* ---------- source image ---------- */
-function setImg(cv){S.img=cv.getContext('2d').getImageData(0,0,cv.width,cv.height);}
+/* B13 FIX: the grid was shaped from the STOCK aspect alone
+   (cols=res, rows=res*matH/matW), and the source image was then stretched to
+   fill it. A 720x1280 portrait dropped onto the default 120x120 square stock
+   was squashed 1.78x vertically — the relief simply did not match the picture.
+   Fit the stock to the image on load so one image pixel maps to one square
+   patch of material. The user can still override W/H afterwards; doing so is
+   then a deliberate stretch rather than a silent one. */
+function fitStockToImage(){
+  if(!S.img)return;
+  const {width,height}=S.img;
+  if(!width||!height)return;
+  const w=G.matW();
+  const h=Math.min(5000,Math.max(10,Math.round((w*height/width)*10)/10));
+  if(Math.abs(h-G.matH())>0.05){
+    $('matH').value=h;
+    $('stockFit').textContent='Stock height auto-fitted to '+h+'mm to match the image ('
+      +width+'×'+height+'). Change W or H to override.';
+  } else $('stockFit').textContent='';
+}
+function setImg(cv){S.img=cv.getContext('2d').getImageData(0,0,cv.width,cv.height);fitStockToImage();}
 function loadSample(){const n=256,cv=document.createElement('canvas');cv.width=n;cv.height=n;
   const ctx=cv.getContext('2d'),im=ctx.createImageData(n,n);
   for(let y=0;y<n;y++)for(let x=0;x<n;x++){const cx=x/n-.5,cy=y/n-.5,d=Math.hypot(cx,cy);
@@ -1020,7 +1053,10 @@ function loadSample(){const n=256,cv=document.createElement('canvas');cv.width=n
 function handleFile(f){
   if(!f||!f.type.startsWith('image/')){alert('Please choose an image file.');return;}
   const im=new Image();
-  im.onload=()=>{const mx=700,sc=Math.min(1,mx/Math.max(im.width,im.height));
+  /* B14 FIX: the source was downscaled to 700px on load, so a 1280px image
+     lost its fine detail before the heightmap ever saw it. Since resampling
+     now area-averages, keep the full picture (capped only to bound memory). */
+  im.onload=()=>{const mx=2400,sc=Math.min(1,mx/Math.max(im.width,im.height));
     const w=Math.max(2,Math.round(im.width*sc)),h=Math.max(2,Math.round(im.height*sc));
     const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(im,0,0,w,h);
     setImg(cv);$('imgInfo').textContent=f.name+' · '+im.width+'×'+im.height+' px';

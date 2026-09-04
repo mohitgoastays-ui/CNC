@@ -193,6 +193,46 @@ section('image orientation (regression: B11)');
 }
 
 /* ================================================================== */
+section('aspect ratio — a square feature stays square (regression: B13)');
+{
+  // The grid was shaped from the stock aspect alone and the image stretched to
+  // fill it, so a 720x1280 portrait on the default 120x120 stock came out
+  // squashed 1.78x. With the stock fitted to the image, a square marker in the
+  // source must measure square in world mm.
+  const w = 720, h = 1280;
+  const mk = () => {
+    const data = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      // 200x200 px square marker, centred
+      const v = (Math.abs(x - w / 2) < 100 && Math.abs(y - h / 2) < 100) ? 255 : 0;
+      data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255;
+    }
+    return data;
+  };
+  const measure = (matW, matH) => {
+    const ctx = loadCore({ matW, matH, res: 240, blur: 0 });
+    ctx.S.img = { data: mk(), width: w, height: h };
+    ctx.buildGrid();
+    const c = ctx.S.cols, r = ctx.S.rows, g = ctx.S.grid;
+    let cols = 0, rows = 0;
+    for (let x = 0; x < c; x++) if (g[Math.floor(r / 2) * c + x] > 0.5) cols++;
+    for (let y = 0; y < r; y++) if (g[y * c + Math.floor(c / 2)] > 0.5) rows++;
+    return { wmm: cols / (c - 1) * matW, hmm: rows / (r - 1) * matH };
+  };
+
+  const fitted = measure(120, 120 * h / w);      // stock fitted to the image
+  const ratio = fitted.wmm / fitted.hmm;
+  check('square marker measures square when stock matches image', Math.abs(ratio - 1) < 0.05,
+    `${fitted.wmm.toFixed(1)}mm x ${fitted.hmm.toFixed(1)}mm  ratio=${ratio.toFixed(3)}`);
+
+  const squashed = measure(120, 120);            // the old default: square stock
+  const sr = squashed.wmm / squashed.hmm;
+  check('mismatched stock still stretches (documented, not silent)', Math.abs(sr - 1) > 0.4,
+    `ratio=${sr.toFixed(3)} — user must opt into this by overriding W/H`);
+}
+
+/* ================================================================== */
 section('roughing — actually cuts, and clears the cutter (regression: B2)');
 {
   const ctx = load('dome');
