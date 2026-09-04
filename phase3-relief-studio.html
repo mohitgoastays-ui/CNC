@@ -693,15 +693,22 @@ function initGL(){
   const vs=`attribute vec3 p;attribute vec3 n;uniform mat4 uMVP;uniform mat4 uM;varying vec3 vN;varying float vH;
     void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.y;}`;
   const fs=`precision mediump float;varying vec3 vN;varying float vH;uniform float uRange;
-    void main(){vec3 L=normalize(vec3(0.45,0.75,0.5));
-      /* two-sided: now that the camera can orbit under the part, back faces
-         must light from their own side or the underside renders flat black */
+    void main(){
+      /* two-sided: the camera can orbit under the part, so back faces must
+         light from their own side or the underside renders flat black */
       vec3 N=normalize(vN); if(!gl_FrontFacing)N=-N;
-      float d=max(dot(N,L),0.0);
-      float lit=0.30+0.70*d;
+      /* key + fill three-quarter lighting so carved recesses stay legible
+         instead of falling to black under a single hard light */
+      vec3 key=normalize(vec3(0.40,0.85,0.55));
+      vec3 fill=normalize(vec3(-0.55,0.35,-0.35));
+      float kd=max(dot(N,key),0.0);
+      float fd=max(dot(N,fill),0.0);
+      float lit=0.46+0.60*kd+0.24*fd;          /* raised ambient + key + fill */
       float t=clamp((vH+uRange)/max(uRange,0.001),0.0,1.0);
-      vec3 base=mix(vec3(0.36,0.41,0.49),vec3(0.95,0.70,0.24),t);
-      gl_FragColor=vec4(base*lit,1.0);}`;
+      vec3 lo=vec3(0.46,0.52,0.60);            /* deepest cut — lifted off black */
+      vec3 hi=vec3(0.99,0.80,0.38);            /* stock top — warm highlight */
+      vec3 base=mix(lo,hi,t);
+      gl_FragColor=vec4(min(base*lit,vec3(1.0)),1.0);}`;
   const mk=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;};
   prog=gl.createProgram();gl.attachShader(prog,mk(gl.VERTEX_SHADER,vs));gl.attachShader(prog,mk(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);
@@ -1051,9 +1058,29 @@ function syncLabels(){
   $('depthWarn').innerHTML=md>th?'<span class="warn-txt">Deeper than '+th+'mm stock — will cut through.</span>':'';
   $('dialectField').style.display=$('fmt').value==='gcode'?'':'none';
 }
-// live-update inputs
-['bri','con','gam','blk','wht','blur'].forEach(id=>$(id).addEventListener('input',()=>{syncLabels();generateAll();}));
-['depth','res'].forEach(id=>$(id).addEventListener('input',()=>{syncLabels();generateAll();}));
+/* ---------- responsive live editing ----------
+   Every depth/image slider used to run the FULL CAM pipeline (roughing
+   dilation + finishing drop-cutter + G-code, ~50k points) on every 'input'
+   event, i.e. on every pixel of a drag — that is the lag. Split it: while the
+   user drags, update only the cheap visual (heightfield + 3D mesh) at most
+   once per animation frame; run the heavy toolpath + G-code once, ~220ms after
+   the drag settles. The exported program is unchanged — only when it computes. */
+let _previewQueued=false, _fullTimer=null, _gridDirty=false;
+function rebuildPreview(){
+  _previewQueued=false;
+  if(!S.img)loadSample();
+  if(_gridDirty){ buildGrid(); _gridDirty=false; }   // tone/detail changed the heightfield
+  if(S.view==='3d'){ if(!gl)initGL(); buildGLBuffers(); render3D(); }
+  else draw2D();                       // heightfield is live; path/section refresh on settle
+}
+function queuePreview(dirty){ if(dirty)_gridDirty=true; if(_previewQueued)return; _previewQueued=true; requestAnimationFrame(rebuildPreview); }
+function scheduleFull(){ clearTimeout(_fullTimer); _fullTimer=setTimeout(generateAll,220); }
+function liveEdit(dirty){ syncLabels(); queuePreview(dirty); scheduleFull(); }
+
+// live-update inputs — light preview now, full toolpath on settle
+// tone/detail sliders change the heightfield (rebuild grid); depth only rescales Z
+['bri','con','gam','blk','wht','blur','res'].forEach(id=>$(id).addEventListener('input',()=>liveEdit(true)));
+$('depth').addEventListener('input',()=>liveEdit(false));
 ['matW','matH','matT','base'].forEach(id=>$(id).addEventListener('change',()=>{syncLabels();generateAll();}));
 ['rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge']
   .forEach(id=>$(id).addEventListener('input',syncLabels));
