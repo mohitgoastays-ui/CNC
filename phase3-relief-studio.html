@@ -64,6 +64,8 @@
   .vp-tabs{position:absolute;top:10px;left:10px;display:flex;gap:2px;background:rgba(21,24,28,.85);backdrop-filter:blur(6px);padding:3px;border-radius:7px;border:1px solid var(--line);z-index:5}
   .vp-tabs button{background:transparent;border:0;color:var(--ink-dim);padding:5px 11px;font-size:11.5px;border-radius:5px;cursor:pointer}
   .vp-tabs button.on{background:var(--panel-3);color:var(--ink)}
+  .vp-mat{position:absolute;bottom:10px;right:14px;z-index:6;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:11.5px}
+  .vp-busy{position:absolute;top:12px;right:14px;background:rgba(240,169,43,.92);color:#0a0d11;font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:7px;z-index:6}
   .vp-hint{position:absolute;bottom:10px;left:10px;font-size:10.5px;color:var(--ink-faint);background:rgba(21,24,28,.8);padding:4px 9px;border-radius:5px;z-index:5}
   .vp-legend{position:absolute;bottom:10px;right:10px;display:flex;gap:12px;font-size:10.5px;color:var(--ink-dim);background:rgba(21,24,28,.85);padding:5px 10px;border-radius:5px;z-index:5}
   .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
@@ -293,10 +295,18 @@
         <button data-v="path">Toolpaths</button>
         <button data-v="height">Heightfield</button>
         <button data-v="section">Section</button>
+        <button data-v="cut">Cut preview</button>
       </div>
+      <select id="matSel" class="vp-mat" style="display:none">
+        <option value="walnut">Walnut</option>
+        <option value="black">Black panel</option>
+        <option value="birch">Birch</option>
+        <option value="white">White</option>
+      </select>
       <canvas id="glCanvas"></canvas>
       <canvas id="c2d" style="display:none"></canvas>
       <div class="vp-hint" id="vpHint">Drag to orbit · scroll to zoom</div>
+      <div class="vp-busy" id="vpBusy" style="display:none">Computing toolpaths…</div>
       <div class="vp-legend" id="vpLegend" style="display:none">
         <span><span class="swatch" style="background:var(--violet)"></span>roughing</span>
         <span><span class="swatch" style="background:var(--amber)"></span>finishing</span>
@@ -693,7 +703,7 @@ function initGL(){
   if(!gl)return;
   const vs=`attribute vec3 p;attribute vec3 n;uniform mat4 uMVP;uniform mat4 uM;varying vec3 vN;varying float vH;
     void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.y;}`;
-  const fs=`precision mediump float;varying vec3 vN;varying float vH;uniform float uRange;
+  const fs=`precision mediump float;varying vec3 vN;varying float vH;uniform float uRange;uniform float uMode;uniform vec3 uMat;
     void main(){
       /* two-sided: the camera can orbit under the part, so back faces must
          light from their own side or the underside renders flat black */
@@ -708,7 +718,11 @@ function initGL(){
       float t=clamp((vH+uRange)/max(uRange,0.001),0.0,1.0);
       vec3 lo=vec3(0.46,0.52,0.60);            /* deepest cut — lifted off black */
       vec3 hi=vec3(0.99,0.80,0.38);            /* stock top — warm highlight */
-      vec3 base=mix(lo,hi,t);
+      /* uMode 1 = material render of the finished piece: one stock colour,
+         with recessed areas shaded down to fake the occlusion a real
+         carving has. The height ramp stays for reading depth. */
+      float ao=mix(0.34,1.0,t*t);
+      vec3 base=(uMode>0.5)?uMat*ao:mix(lo,hi,t);
       gl_FragColor=vec4(min(base*lit,vec3(1.0)),1.0);}`;
   const mk=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;};
@@ -764,6 +778,10 @@ function render3D(){
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uMVP'),false,new Float32Array(mvp));
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uM'),false,new Float32Array(model));
   gl.uniform1f(gl.getUniformLocation(prog,'uRange'),Math.max(0.5,G.depth()));
+  const MATS={walnut:[0.34,0.21,0.12],black:[0.13,0.13,0.14],birch:[0.82,0.70,0.50],white:[0.90,0.90,0.92]};
+  const mc=MATS[($('matSel')&&$('matSel').value)||'walnut']||MATS.walnut;
+  gl.uniform1f(gl.getUniformLocation(prog,'uMode'),S.view==='cut'?1:0);
+  gl.uniform3f(gl.getUniformLocation(prog,'uMat'),mc[0],mc[1],mc[2]);
   const pl=gl.getAttribLocation(prog,'p'),nl=gl.getAttribLocation(prog,'n');
   gl.bindBuffer(gl.ARRAY_BUFFER,bufs.pos);gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,3,gl.FLOAT,false,0,0);
   gl.bindBuffer(gl.ARRAY_BUFFER,bufs.nor);gl.enableVertexAttribArray(nl);gl.vertexAttribPointer(nl,3,gl.FLOAT,false,0,0);
@@ -824,12 +842,13 @@ function draw2D(){
 }
 function setView(v){
   S.view=v;
-  const is3=v==='3d';
+  const is3=(v==='3d'||v==='cut');
   $('glCanvas').style.display=is3?'block':'none';
   $('c2d').style.display=is3?'none':'block';
   $('exagWrap').style.display=is3?'block':'none';
   $('vpLegend').style.display=v==='path'?'flex':'none';
-  $('vpHint').textContent=is3?'Drag to orbit · scroll to zoom':
+  if($('matSel'))$('matSel').style.display=v==='cut'?'block':'none';
+  $('vpHint').textContent=v==='cut'?'Finished piece · drag to orbit':is3?'Drag to orbit · scroll to zoom':
     v==='path'?'Top view · colored by operation':v==='section'?'Cross-section at mid-height':'Processed heightfield';
   [...$('vpTabs').children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));
   if(is3){buildGLBuffers();render3D();}else draw2D();
@@ -975,6 +994,20 @@ function generateAll(){
   const cellMm=G.matW()/Math.max(1,S.cols-1);
   const toolMm=o.fin?o.fin.dia:0;
   const minFeat=Math.max(toolMm,cellMm*2);
+  /* B18: the depth controls can silently flatten the relief into mush.
+     `if(wht>blk)` makes the levels stage a no-op whenever White <= Black, and a
+     strong negative contrast crushes the whole range — the result still emits a
+     valid-looking program, it just carves a faint blur instead of the design.
+     Measure the spread that actually survives and say so. */
+  let p5=0,p95=1;
+  if(S.grid&&S.grid.length){
+    const hist=new Uint32Array(101);
+    for(let i=0;i<S.grid.length;i++)hist[Math.max(0,Math.min(100,Math.round(S.grid[i]*100)))]++;
+    const n=S.grid.length; let acc=0;
+    for(let b=0;b<=100;b++){acc+=hist[b];if(acc>=n*0.05){p5=b/100;break;}}
+    acc=0; for(let b=100;b>=0;b--){acc+=hist[b];if(acc>=n*0.05){p95=b/100;break;}}
+  }
+  const spread=Math.max(0,p95-p5);
   $('stats').innerHTML=
     st('Ops',(o.rough&&o.rough.passes.length?1:0)+(o.fin&&o.fin.passes.length?1:0))+
     st('Rough levels',o.rough?o.rough.levels:'—')+
@@ -999,6 +1032,12 @@ function generateAll(){
   const warns=[];
   if(o.fin&&fRpx<0.5)warns.push('Grid is too coarse for a Ø'+o.fin.dia+'mm tool ('+fRpx.toFixed(2)+
     ' px radius) — raise <b>Grid resolution</b> in step 3 or the path will not resolve the tool.');
+  if(num('wht',100,5,100)<=num('blk',0,0,95))warns.push('<b>White point is at or below Black point</b>, '+
+    'so the levels stage is doing nothing at all. Raise White pt (100 = full range) '+
+    'or lower Black pt.');
+  if(spread<0.35)warns.push('The depth mapping only spans <b>'+Math.round(spread*100)+'%</b> of the '+
+    'available range, so the relief will carve as a faint blur rather than the design. '+
+    'Raise <b>Contrast</b>, widen <b>Black/White pt</b>, or press <b>Reset to defaults</b>.');
   if(o.fin&&toolMm>cellMm*6)warns.push('The Ø'+o.fin.dia+'mm finishing tool is the detail limit here: '+
     'it cannot enter anything narrower than <b>'+toolMm.toFixed(1)+'mm</b>, while the heightfield '+
     'resolves '+cellMm.toFixed(3)+'mm. Fine line-work will be rounded over — use a smaller ball or '+
@@ -1060,7 +1099,7 @@ function handleFile(f){
     const w=Math.max(2,Math.round(im.width*sc)),h=Math.max(2,Math.round(im.height*sc));
     const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(im,0,0,w,h);
     setImg(cv);$('imgInfo').textContent=f.name+' · '+im.width+'×'+im.height+' px';
-    URL.revokeObjectURL(im.src); generateAll();};
+    URL.revokeObjectURL(im.src); actionEdit(true);};
   im.onerror=()=>alert('That image could not be read.');
   im.src=URL.createObjectURL(f);}
 $('file').addEventListener('change',e=>handleFile(e.target.files[0]));
@@ -1068,18 +1107,18 @@ $('drop').onclick=()=>$('file').click();
 ['dragenter','dragover'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.add('over');}));
 ['dragleave','drop'].forEach(ev=>$('drop').addEventListener(ev,e=>{e.preventDefault();$('drop').classList.remove('over');}));
 $('drop').addEventListener('drop',e=>{if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);});
-$('sampleBtn').onclick=()=>{loadSample();generateAll();};
+$('sampleBtn').onclick=()=>{loadSample();actionEdit(true);};
 
 /* ---------- UI wiring ---------- */
 function segSet(id,v){[...$(id).children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));}
 function segWire(id,cb){$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   segSet(id,b.dataset.v);cb(b.dataset.v);});}
-segWire('invSeg',v=>{S.invert=+v;$('invV').textContent=+v?'on':'off';generateAll();});
-segWire('mirSeg',v=>{S.mirror=+v;$('mirV').textContent=+v?'on':'off';generateAll();});
+segWire('invSeg',v=>{S.invert=+v;$('invV').textContent=+v?'on':'off';actionEdit(true);});
+segWire('mirSeg',v=>{S.mirror=+v;$('mirV').textContent=+v?'on':'off';actionEdit(true);});
 segWire('fToolSeg',v=>{S.fTool=v;$('fToolName').textContent=v==='ball'?'Ball-nose':v==='vbit'?'V-bit':'Flat';
   $('vAngleField').style.display=v==='vbit'?'':'none';syncLabels();});
 segWire('dirSeg',v=>{S.dir=v;});
-function togWire(id,k){$(id).addEventListener('click',()=>{$(id).classList.toggle('on');S[k]=$(id).classList.contains('on');});}
+function togWire(id,k){$(id).addEventListener('click',()=>{$(id).classList.toggle('on');S[k]=$(id).classList.contains('on');actionEdit(false);});}
 togWire('roughTog','rough');togWire('finTog','fin');
 
 function syncLabels(){
@@ -1110,22 +1149,41 @@ function rebuildPreview(){
   else draw2D();                       // heightfield is live; path/section refresh on settle
 }
 function queuePreview(dirty){ if(dirty)_gridDirty=true; if(_previewQueued)return; _previewQueued=true; requestAnimationFrame(rebuildPreview); }
-function scheduleFull(){ clearTimeout(_fullTimer); _fullTimer=setTimeout(generateAll,220); }
+/* B17 FIX: the sliders were debounced but every BUTTON — Invert, Mirror, Reset,
+   Load sample, and the stock fields — still called generateAll() straight from
+   the click handler. At 300px grid that is a ~2.3s synchronous pass, so the UI
+   froze solid on every press. Route them through the same deferred path, and
+   show a busy state that is actually painted before the heavy pass starts
+   (double rAF), so a long compute reads as "working" instead of "hung". */
+function setBusy(on){
+  const el=$('vpBusy'); if(el)el.style.display=on?'block':'none';
+}
+function runFull(){
+  setBusy(true);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    try{ generateAll(); } finally { setBusy(false); }
+  }));
+}
+function scheduleFull(){ clearTimeout(_fullTimer); _fullTimer=setTimeout(runFull,220); }
 function liveEdit(dirty){ syncLabels(); queuePreview(dirty); scheduleFull(); }
+/* for discrete actions (buttons): repaint the cheap preview immediately, then
+   run the toolpaths without blocking the click */
+function actionEdit(dirty){ syncLabels(); queuePreview(dirty!==false); clearTimeout(_fullTimer); _fullTimer=setTimeout(runFull,30); }
 
 // live-update inputs — light preview now, full toolpath on settle
 // tone/detail sliders change the heightfield (rebuild grid); depth only rescales Z
 ['bri','con','gam','blk','wht','blur','res'].forEach(id=>$(id).addEventListener('input',()=>liveEdit(true)));
 $('depth').addEventListener('input',()=>liveEdit(false));
-['matW','matH','matT','base'].forEach(id=>$(id).addEventListener('change',()=>{syncLabels();generateAll();}));
+['matW','matH','matT','base'].forEach(id=>$(id).addEventListener('change',()=>actionEdit(true)));
 ['rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge']
   .forEach(id=>$(id).addEventListener('input',syncLabels));
 $('exag').addEventListener('input',()=>{syncLabels();if(S.view==='3d')render3D();});
 $('fmt').addEventListener('change',syncLabels);
+if($('matSel'))$('matSel').addEventListener('change',()=>{if(S.view==='cut')render3D();});
 $('dialect').addEventListener('change',()=>{if(S.ops){const g=buildGCode();$('gcode').value=g;$('hash').textContent=fnv1a(g);}});
 $('resetDepth').onclick=()=>{$('bri').value=0;$('con').value=0;$('gam').value=1;$('blk').value=0;$('wht').value=100;$('blur').value=1;
   S.invert=0;S.mirror=0;segSet('invSeg','0');segSet('mirSeg','0');$('invV').textContent='off';$('mirV').textContent='off';
-  syncLabels();generateAll();};
+  actionEdit(true);};
 
 // step navigation
 function goStep(i){S.step=i;
