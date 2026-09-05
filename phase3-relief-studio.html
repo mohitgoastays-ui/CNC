@@ -701,9 +701,13 @@ const clampPitch=p=>p<-PITCH_LIMIT?-PITCH_LIMIT:(p>PITCH_LIMIT?PITCH_LIMIT:p);
 function initGL(){
   const cv=$('glCanvas'); gl=cv.getContext('webgl');
   if(!gl)return;
-  const vs=`attribute vec3 p;attribute vec3 n;uniform mat4 uMVP;uniform mat4 uM;varying vec3 vN;varying float vH;
-    void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.y;}`;
-  const fs=`precision mediump float;varying vec3 vN;varying float vH;uniform float uRange;uniform float uMode;uniform vec3 uMat;
+  const vs=`attribute vec3 p;attribute vec3 n;attribute float ao;
+    uniform mat4 uMVP;uniform mat4 uM;
+    varying vec3 vN;varying float vH;varying float vAO;varying vec3 vP;
+    void main(){gl_Position=uMVP*vec4(p,1.0);vN=mat3(uM)*n;vH=p.y;vAO=ao;vP=(uM*vec4(p,1.0)).xyz;}`;
+  const fs=`precision mediump float;
+    varying vec3 vN;varying float vH;varying float vAO;varying vec3 vP;
+    uniform float uRange;uniform float uMode;uniform vec3 uMat;uniform float uGloss;
     void main(){
       /* two-sided: the camera can orbit under the part, so back faces must
          light from their own side or the underside renders flat black */
@@ -714,16 +718,34 @@ function initGL(){
       vec3 fill=normalize(vec3(-0.55,0.35,-0.35));
       float kd=max(dot(N,key),0.0);
       float fd=max(dot(N,fill),0.0);
-      float lit=0.46+0.60*kd+0.24*fd;          /* raised ambient + key + fill */
       float t=clamp((vH+uRange)/max(uRange,0.001),0.0,1.0);
-      vec3 lo=vec3(0.46,0.52,0.60);            /* deepest cut — lifted off black */
-      vec3 hi=vec3(0.99,0.80,0.38);            /* stock top — warm highlight */
-      /* uMode 1 = material render of the finished piece: one stock colour,
-         with recessed areas shaded down to fake the occlusion a real
-         carving has. The height ramp stays for reading depth. */
-      float ao=mix(0.34,1.0,t*t);
-      vec3 base=(uMode>0.5)?uMat*ao:mix(lo,hi,t);
-      gl_FragColor=vec4(min(base*lit,vec3(1.0)),1.0);}`;
+
+      if(uMode<0.5){                              /* height ramp — reads depth */
+        float lit=0.46+0.60*kd+0.24*fd;
+        vec3 base=mix(vec3(0.46,0.52,0.60),vec3(0.99,0.80,0.38),t);
+        gl_FragColor=vec4(min(base*lit,vec3(1.0)),1.0);
+        return;
+      }
+
+      /* Material render of the finished piece. vAO is real cavity occlusion
+         measured from the heightfield, not a height gradient, so grooves go
+         dark because they are enclosed rather than because they are low. */
+      float occ=clamp(vAO,0.0,1.0);
+      vec3 V=normalize(-vP);
+      vec3 Hk=normalize(key+V);
+      /* A pure-white tight highlight read as a scratch across the panel. Keep
+         it broad and tinted toward the stock so it behaves like a satin finish
+         rather than a mirror, and let it die inside cavities the way a real
+         finish does. */
+      float spec=pow(max(dot(N,Hk),0.0),uGloss)*0.26*occ*occ;
+      vec3 specCol=mix(uMat*4.0,vec3(1.0),0.45);
+      /* faint fresnel so carved edges catch light and the form reads */
+      float fres=pow(1.0-max(dot(N,V),0.0),3.0)*0.09*occ;
+      float amb=0.32*occ+0.07;
+      float diff=0.70*kd*mix(0.35,1.0,occ)+0.20*fd*occ;
+      vec3 col=uMat*(amb+diff)+specCol*spec+vec3(fres);
+      col=pow(clamp(col,0.0,1.0),vec3(0.4545));   /* linear -> sRGB */
+      gl_FragColor=vec4(col,1.0);}`;
   const mk=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;};
   prog=gl.createProgram();gl.attachShader(prog,mk(gl.VERTEX_SHADER,vs));gl.attachShader(prog,mk(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);
@@ -749,20 +771,63 @@ function trans(x,y,z){return[1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1];}
 function buildGLBuffers(){
   if(!gl||!S.grid)return;
   const c=S.cols,r=S.rows,matW=G.matW(),matH=G.matH(),md=G.depth();
-  const step=Math.max(1,Math.floor(Math.max(c,r)/130));
+  /* B19: the preview mesh was fixed at ~130 samples per side, so a 300x533
+     heightfield was shown with 75x134 vertices — the detail was in the data and
+     simply not drawn. Budget by vertex count instead. Uint16 indices top out at
+     65535, so ask for the uint index extension and only spend the bigger budget
+     when we actually get it; overrunning it silently corrupts the mesh. */
+  const u32=gl.getExtension('OES_element_index_uint');
+  const budget=u32?150000:64000;   // bounded: AO costs ~18 heightfield reads per vertex
+  let step=1;
+  while(true){
+    const C=Math.floor((c-1)/step)+1, R=Math.floor((r-1)/step)+1;
+    if(C*R<=budget||step>64)break;
+    step++;
+  }
   const C=Math.floor((c-1)/step)+1,R=Math.floor((r-1)/step)+1;
-  const pos=[],nor=[],idx=[],cx=matW/2,cy=matH/2;
+  const n=C*R;
+  const pos=new Float32Array(n*3),nor=new Float32Array(n*3),ao=new Float32Array(n);
+  const cx=matW/2,cy=matH/2;
   const gz=(gx,gy)=>surfZ(gx,gy,md);
+  const mmPx=matW/Math.max(1,c-1);
+  /* Cavity shading. The old term darkened purely by absolute height, so a broad
+     flat floor read as shadowed while a narrow groove near the top read as lit —
+     the opposite of a real carving. Sample the horizon around each point: how
+     far the surroundings rise above it, relative to how far away they are. Only
+     built for the material preview, since it costs ~20 samples per vertex. */
+  const wantAO=(S.view==='cut')&&!_fastPreview;
+  /* radii in grid cells, so the cavity term is measured at real carving scales
+     (~1mm / 2mm / 4mm on a typical grid) rather than scaling with mesh decimation */
+  const DIRS=6, RADII=[2,5,11];
   for(let j=0;j<R;j++)for(let i=0;i<C;i++){
+    const k=j*C+i;
     const gx=Math.min(c-1,i*step),gy=Math.min(r-1,j*step);
-    pos.push((gx/(c-1))*matW-cx, gz(gx,gy), (gy/(r-1))*matH-cy);
+    const z=gz(gx,gy);
+    pos[k*3]=(gx/(c-1))*matW-cx; pos[k*3+1]=z; pos[k*3+2]=(gy/(r-1))*matH-cy;
     const sx=(matW/(c-1))*step, sy=(matH/(r-1))*step;
     const nx=-(gz(gx+step,gy)-gz(gx-step,gy))/(2*sx), nz=-(gz(gx,gy+step)-gz(gx,gy-step))/(2*sy);
-    const l=Math.hypot(nx,1,nz)||1; nor.push(nx/l,1/l,nz/l);}
-  for(let j=0;j<R-1;j++)for(let i=0;i<C-1;i++){const a=j*C+i;idx.push(a,a+1,a+C+1,a,a+C+1,a+C);}
+    const l=Math.hypot(nx,1,nz)||1; nor[k*3]=nx/l; nor[k*3+1]=1/l; nor[k*3+2]=nz/l;
+    if(!wantAO){ao[k]=1;continue;}
+    let occ=0,cnt=0;
+    for(let ri=0;ri<RADII.length;ri++){
+      const Rp=RADII[ri], dmm=Rp*mmPx;
+      for(let a=0;a<DIRS;a++){
+        const ang=a*Math.PI*2/DIRS;
+        const dz=gz(gx+Math.round(Math.cos(ang)*Rp),gy+Math.round(Math.sin(ang)*Rp))-z;
+        occ+=dz>0?Math.min(1,dz/Math.max(1e-6,dmm)):0;
+        cnt++;
+      }
+    }
+    ao[k]=Math.max(0,1-(occ/Math.max(1,cnt))*1.6);
+  }
+  const idx=u32?new Uint32Array((C-1)*(R-1)*6):new Uint16Array((C-1)*(R-1)*6);
+  let p=0;
+  for(let j=0;j<R-1;j++)for(let i=0;i<C-1;i++){const a=j*C+i;
+    idx[p++]=a;idx[p++]=a+1;idx[p++]=a+C+1;idx[p++]=a;idx[p++]=a+C+1;idx[p++]=a+C;}
   const mkb=(arr,t)=>{const b=gl.createBuffer();gl.bindBuffer(t,b);gl.bufferData(t,arr,gl.STATIC_DRAW);return b;};
-  bufs={pos:mkb(new Float32Array(pos),gl.ARRAY_BUFFER),nor:mkb(new Float32Array(nor),gl.ARRAY_BUFFER),
-    idx:mkb(new Uint16Array(idx),gl.ELEMENT_ARRAY_BUFFER),count:idx.length};
+  bufs={pos:mkb(pos,gl.ARRAY_BUFFER),nor:mkb(nor,gl.ARRAY_BUFFER),ao:mkb(ao,gl.ARRAY_BUFFER),
+    idx:mkb(idx,gl.ELEMENT_ARRAY_BUFFER),count:idx.length,
+    type:u32?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT,verts:n};
   orbit.dist=Math.max(matW,matH)*1.7;
 }
 function fitCanvas(cv){const r=cv.getBoundingClientRect();
@@ -778,15 +843,20 @@ function render3D(){
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uMVP'),false,new Float32Array(mvp));
   gl.uniformMatrix4fv(gl.getUniformLocation(prog,'uM'),false,new Float32Array(model));
   gl.uniform1f(gl.getUniformLocation(prog,'uRange'),Math.max(0.5,G.depth()));
-  const MATS={walnut:[0.34,0.21,0.12],black:[0.13,0.13,0.14],birch:[0.82,0.70,0.50],white:[0.90,0.90,0.92]};
-  const mc=MATS[($('matSel')&&$('matSel').value)||'walnut']||MATS.walnut;
+  /* base colour in LINEAR space (the shader gamma-corrects on output) and a
+     gloss exponent per material — lacquer is sharp, raw timber is broad */
+  const MATS={walnut:{c:[0.105,0.052,0.024],g:14},black:{c:[0.016,0.016,0.019],g:42},
+              birch:{c:[0.640,0.460,0.230],g:10},white:{c:[0.790,0.790,0.820],g:16}};
+  const mm=MATS[($('matSel')&&$('matSel').value)]||MATS.walnut;
   gl.uniform1f(gl.getUniformLocation(prog,'uMode'),S.view==='cut'?1:0);
-  gl.uniform3f(gl.getUniformLocation(prog,'uMat'),mc[0],mc[1],mc[2]);
-  const pl=gl.getAttribLocation(prog,'p'),nl=gl.getAttribLocation(prog,'n');
+  gl.uniform3f(gl.getUniformLocation(prog,'uMat'),mm.c[0],mm.c[1],mm.c[2]);
+  gl.uniform1f(gl.getUniformLocation(prog,'uGloss'),mm.g);
+  const pl=gl.getAttribLocation(prog,'p'),nl=gl.getAttribLocation(prog,'n'),al=gl.getAttribLocation(prog,'ao');
   gl.bindBuffer(gl.ARRAY_BUFFER,bufs.pos);gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,3,gl.FLOAT,false,0,0);
   gl.bindBuffer(gl.ARRAY_BUFFER,bufs.nor);gl.enableVertexAttribArray(nl);gl.vertexAttribPointer(nl,3,gl.FLOAT,false,0,0);
+  if(al>=0&&bufs.ao){gl.bindBuffer(gl.ARRAY_BUFFER,bufs.ao);gl.enableVertexAttribArray(al);gl.vertexAttribPointer(al,1,gl.FLOAT,false,0,0);}
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,bufs.idx);
-  gl.drawElements(gl.TRIANGLES,bufs.count,gl.UNSIGNED_SHORT,0);
+  gl.drawElements(gl.TRIANGLES,bufs.count,bufs.type||gl.UNSIGNED_SHORT,0);
 }
 
 /* ---------- 2D views ---------- */
@@ -1140,12 +1210,18 @@ function syncLabels(){
    user drags, update only the cheap visual (heightfield + 3D mesh) at most
    once per animation frame; run the heavy toolpath + G-code once, ~220ms after
    the drag settles. The exported program is unchanged — only when it computes. */
-let _previewQueued=false, _fullTimer=null, _gridDirty=false;
+let _previewQueued=false, _fullTimer=null, _gridDirty=false, _fastPreview=false;
 function rebuildPreview(){
   _previewQueued=false;
   if(!S.img)loadSample();
   if(_gridDirty){ buildGrid(); _gridDirty=false; }   // tone/detail changed the heightfield
-  if(S.view==='3d'){ if(!gl)initGL(); buildGLBuffers(); render3D(); }
+  /* 'cut' is also a GL view — routing it to draw2D left the material preview
+     frozen for the whole drag while the hidden 2D canvas was updated instead.
+     Cavity AO costs ~18 heightfield reads per vertex, so skip it mid-drag and
+     let the settle pass restore full quality. */
+  if(S.view==='3d'||S.view==='cut'){ if(!gl)initGL();
+    _fastPreview=true; try{ buildGLBuffers(); } finally { _fastPreview=false; }
+    render3D(); }
   else draw2D();                       // heightfield is live; path/section refresh on settle
 }
 function queuePreview(dirty){ if(dirty)_gridDirty=true; if(_previewQueued)return; _previewQueued=true; requestAnimationFrame(rebuildPreview); }
