@@ -232,6 +232,24 @@
         <div class="field"><label>Rapid <b>mm/min</b></label><input id="rapid" type="number" value="5000" min="1"></div>
       </div>
       <div class="note">Ramp angle 0 = straight plunge. 15° is a safe default for wood; lower it for hard stock.</div>
+      <div class="row2">
+        <div class="field"><label>Spindle spin-up <b>s</b></label><input id="dwell" type="number" value="3" step="0.5" min="0" max="60"></div>
+        <div class="field"><label>Work offset</label>
+          <select id="wcs"><option value="G54">G54</option><option value="G55">G55</option>
+          <option value="G56">G56</option><option value="none">none</option></select></div>
+      </div>
+      <div class="field"><label>Tool change</label>
+        <select id="tcMode">
+          <option value="pause">Pause for manual change (M0) — safest</option>
+          <option value="m6">M6 only — controller handles it</option>
+        </select>
+        <div class="note">Many GRBL builds ignore <b>M6</b>. If yours does, the finishing pass would run
+          with the roughing cutter still fitted — the pause prevents that.</div></div>
+      <div class="field"><label>End of program</label>
+        <select id="endMode">
+          <option value="origin">Retract and return to X0 Y0</option>
+          <option value="stay">Retract only</option>
+        </select></div>
       <button class="btn primary full" id="genBtn">Generate toolpaths</button>
       <div class="note" id="timing" style="margin-top:7px"></div>
       <button class="btn full" data-next="4" style="margin-top:8px">Next: Export →</button>
@@ -352,6 +370,7 @@ const G={ matW:()=>num('matW',120,1,5000), matH:()=>num('matH',120,1,5000), matT
   depth:()=>num('depth',6,0.1,1000), base:()=>num('base',3,0,1000), res:()=>num('res',160,20,600),
   safe:()=>num('safe',5,0.1,500), plunge:()=>num('plunge',400,1,50000),
   ramp:()=>num('ramp',15,0,90), rapid:()=>num('rapid',5000,1,100000),
+  dwell:()=>num('dwell',3,0,60),
   rDia:()=>num('rDia',6,0.1,100), rStepdown:()=>num('rStepdown',2,0.05,100),
   rStep:()=>num('rStep',45,5,95)/100, rAllow:()=>num('rAllow',0.4,0,50),
   rFeed:()=>num('rFeed',1800,1,50000), rRpm:()=>num('rRpm',16000,1,100000),
@@ -634,10 +653,21 @@ function buildGCode(){
   const o=S.ops; if(!o)return '';
   const d=$('dialect').value, safe=G.safe(), plunge=G.plunge();
   const cm=d==='linuxcnc'?s=>'('+s+')':s=>'; '+s;
+  /* B20: machine-side preamble the program never emitted. Without an explicit
+     work offset the program relied on whatever modal state the controller
+     happened to be in; without a spin-up dwell the first cut began before the
+     spindle reached speed; and it never said where zero is, which is the single
+     most common way a correct program still wrecks a part. */
+  const wcs=($('wcs')&&$('wcs').value)||'G54';
+  const dwell=G.dwell();
   const L=[cm('Relief Studio — generated client-side · dialect='+d),
-           cm('stock '+G.matW()+'x'+G.matH()+'x'+G.matT()+'mm · relief depth '+G.depth()+'mm')];
+           cm('stock '+G.matW()+'x'+G.matH()+'x'+G.matT()+'mm · relief depth '+G.depth()+'mm'),
+           cm('WORK ZERO: X0 Y0 = front-left corner of the stock, Z0 = TOP surface'),
+           cm('all cuts are negative Z · verify Z zero on the stock top before running')];
   L.push('G21','G90'); if(d!=='grbl')L.push('G17');
+  if(wcs!=='none')L.push(wcs);
   let n=0, emitted=0;
+  const tcPause=(($('tcMode')&&$('tcMode').value)||'pause')==='pause';
   const tanR=Math.tan(G.ramp()*Math.PI/180);
   /* B5 FIX: entries were a vertical G1 Z straight to full depth. With roughing
      restored the finishing plunge only passes through the allowance shell, but
@@ -648,7 +678,19 @@ function buildGCode(){
     if(!o2||!o2.passes.length)return;
     n++;emitted++;
     L.push(cm('--- OP'+n+' '+tag+' · Ø'+o2.dia+'mm · S'+o2.rpm+' F'+o2.feed));
-    L.push('M6 T'+n,'M3 S'+Math.round(o2.rpm),'G0 Z'+fmt(safe));
+    /* B21: the program issued M6 between two tools and carried straight on.
+       Many GRBL builds silently ignore M6, which would run this operation with
+       the previous cutter still fitted. Retract, stop, and hold on M0 so the
+       operator changes the tool and re-zeros Z before resuming. */
+    if(n>1&&tcPause){
+      L.push('G0 Z'+fmt(safe));
+      L.push(cm('*** TOOL CHANGE: fit Ø'+o2.dia+'mm '+(o2.type||'flat')+
+                ', re-zero Z on the stock top, then resume ***'));
+      L.push('M0');
+    }
+    L.push('M6 T'+n,'M3 S'+Math.round(o2.rpm));
+    if(dwell>0)L.push('G4 P'+dwell+' '+cm('spindle spin-up'));
+    L.push('G0 Z'+fmt(safe));
     for(const p of o2.passes){
       if(!p.pts.length)continue;
       const pts=p.pts, zAt=i=>rough?p.z:pts[i].z;
@@ -681,6 +723,13 @@ function buildGCode(){
   op(o.rough,'ROUGHING (flat)',true);
   op(o.fin,'FINISHING ('+(o.fin?o.fin.type:'')+')',false);
   if(!emitted)L.push(cm('no material to remove with current settings'));   // A3
+  /* B22: the program ended on M30 with the tool wherever the last pass left it,
+     sitting over the work. Retract clear, then optionally park at the origin so
+     the part can be removed without reaching around the cutter. */
+  if(emitted){
+    L.push('G0 Z'+fmt(safe));
+    if((($('endMode')&&$('endMode').value)||'origin')==='origin')L.push('G0 X0.000 Y0.000');
+  }
   L.push('M30');
   return L.join('\n');
 }
@@ -1006,7 +1055,7 @@ $('dl').onclick=()=>{
 
 /* ---------- project save/load ---------- */
 const FIELDS=['bri','con','gam','blk','wht','blur','matW','matH','matT','depth','base','res',
-  'rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge','ramp','rapid','dialect','fmt'];
+  'rDia','rStepdown','rStep','rAllow','rFeed','rRpm','fDia','vAngle','fStep','fFeed','fRpm','safe','plunge','ramp','rapid','dwell','wcs','tcMode','endMode','dialect','fmt'];
 $('saveProj').onclick=()=>{
   const p={v:1,fields:{},flags:{invert:S.invert,mirror:S.mirror,fTool:S.fTool,dir:S.dir,rough:S.rough,fin:S.fin}};
   FIELDS.forEach(f=>p.fields[f]=$(f).value);
@@ -1256,7 +1305,9 @@ $('depth').addEventListener('input',()=>liveEdit(false));
 $('exag').addEventListener('input',()=>{syncLabels();if(S.view==='3d')render3D();});
 $('fmt').addEventListener('change',syncLabels);
 if($('matSel'))$('matSel').addEventListener('change',()=>{if(S.view==='cut')render3D();});
-$('dialect').addEventListener('change',()=>{if(S.ops){const g=buildGCode();$('gcode').value=g;$('hash').textContent=fnv1a(g);}});
+['dialect','wcs','tcMode','endMode'].forEach(id=>$(id).addEventListener('change',()=>{
+  if(S.ops){const g=buildGCode();$('gcode').value=g;$('hash').textContent=fnv1a(g);}}));
+$('dwell').addEventListener('input',()=>{if(S.ops){const g=buildGCode();$('gcode').value=g;$('hash').textContent=fnv1a(g);}});
 $('resetDepth').onclick=()=>{$('bri').value=0;$('con').value=0;$('gam').value=1;$('blk').value=0;$('wht').value=100;$('blur').value=1;
   S.invert=0;S.mirror=0;segSet('invSeg','0');segSet('mirSeg','0');$('invV').textContent='off';$('mirV').textContent='off';
   actionEdit(true);};

@@ -35,6 +35,7 @@ if (!core) {
 const DEFAULTS = {
   matW: 120, matH: 120, matT: 18, depth: 6, base: 3, res: 160,
   safe: 5, plunge: 400, ramp: 15, rapid: 5000,
+  dwell: 3, wcs: 'G54', tcMode: 'pause', endMode: 'origin',
   rDia: 6, rStepdown: 2, rStep: 45, rAllow: 0.4, rFeed: 1800, rRpm: 16000,
   fDia: 3, fStep: 12, vAngle: 90, fFeed: 1000, fRpm: 18000,
   bri: 0, con: 0, gam: 1, blk: 0, wht: 100, blur: 1, dialect: 'grbl'
@@ -330,6 +331,43 @@ section('G-code — structure and safety (regression: B5)');
   const nums = gc.match(/-?\d+\.\d+/g) || [];
   check('all coordinates finite', nums.every(n => Number.isFinite(parseFloat(n))),
     `${nums.length} numbers`);
+}
+
+/* ================================================================== */
+section('G-code — machine setup and tool change (regression: B20-B22)');
+{
+  const ctx = load('dome', { fStep: 40 });
+  ctx.S.ops = { rough: ctx.genRoughing(), fin: ctx.genFinishing(), ms: 0 };
+  const gc = ctx.buildGCode();
+  const lines = gc.split('\n');
+
+  check('declares a work offset', lines.includes('G54'));
+  check('states where work zero is', /WORK ZERO.*front-left.*TOP surface/.test(gc));
+  check('dwells for spindle spin-up before the first cut',
+    /^G4 P3\b/m.test(gc) && lines.findIndex(l => /^G4 P3/.test(l)) < lines.findIndex(l => /^G1 /.test(l)));
+
+  // The tool change must stop the machine, not rely on M6 being honoured.
+  const m0 = lines.indexOf('M0');
+  const t2 = lines.indexOf('M6 T2');
+  check('pauses between the two tools', m0 > 0 && t2 > m0, `M0 at ${m0}, M6 T2 at ${t2}`);
+  check('retracts before the pause', /^G0 Z5\.000$/.test(lines[m0 - 2] || ''), lines[m0 - 2]);
+  check('names the tool to fit', /TOOL CHANGE: fit/.test(lines[m0 - 1] || ''));
+
+  // End of program: clear of the work, then park.
+  const end = lines.length - 1;
+  check('ends with M30', lines[end] === 'M30');
+  check('parks at the origin before ending', lines[end - 1] === 'G0 X0.000 Y0.000');
+  check('retracts before parking', lines[end - 2] === 'G0 Z5.000');
+}
+{
+  // Opting out must actually change the program.
+  const ctx = load('dome', { fStep: 40, tcMode: 'm6', endMode: 'stay', wcs: 'none', dwell: 0 });
+  ctx.S.ops = { rough: ctx.genRoughing(), fin: ctx.genFinishing(), ms: 0 };
+  const gc = ctx.buildGCode(), lines = gc.split('\n');
+  check('M6-only mode emits no pause', !lines.includes('M0'));
+  check('no work offset when set to none', !/^G5[4-6]$/m.test(gc));
+  check('no dwell when set to zero', !/^G4 /m.test(gc));
+  check('retract-only mode does not park', lines[lines.length - 2] === 'G0 Z5.000');
 }
 
 /* ================================================================== */
